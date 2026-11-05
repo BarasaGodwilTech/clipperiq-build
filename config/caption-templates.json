@@ -1,0 +1,23 @@
+{
+  "_readme": "Caption looks for the Captions panel. 'templates' are built in and cannot be deleted from the app: edit or add entries here, restart the server and hard-refresh the browser. Every field of 'style' is optional (a missing one takes the default). Looks you save in the app live in your browser. Fonts: font ids are poppins, inter, archivo, oswald (see CAPTION_FONTS in js/shared/captions.js; to add a font, put the .ttf in server/assets/fonts and add it there). Colours are #rrggbb. size = % of the frame width; stroke and shadow = fraction of the text size; y = where the caption sits, % of the frame height from the top; widthPct = widest a line may be, % of the frame width. highlight: none | color | pop (the spoken word changes colour, pop also swells). animIn: none | fade | pop | slide | bounce. animOut: none | fade. reveal: page (all words at once) | word (words appear as they are spoken).",
+  "version": 1,
+  "userTemplateLimit": 30,
+  "templates": [
+    { "id": "pop-highlight", "label": "Pop Highlight", "description": "Bold uppercase words, the spoken word turns yellow and swells.",
+      "style": { "font": "poppins", "size": 7.2, "uppercase": true, "color": "#ffffff", "highlight": "pop", "highlightColor": "#ffd400", "strokeColor": "#000000", "stroke": 0.16, "shadow": 0.05, "y": 70, "wordsPerPage": 3, "maxLines": 2, "animIn": "pop", "animOut": "none", "reveal": "page" } },
+    { "id": "big-impact", "label": "Big Impact", "description": "Huge heavy words, one or two at a time, with a bounce.",
+      "style": { "font": "archivo", "size": 10.5, "uppercase": true, "color": "#ffffff", "highlight": "color", "highlightColor": "#ff3b30", "strokeColor": "#000000", "stroke": 0.2, "shadow": 0.08, "y": 62, "wordsPerPage": 2, "maxLines": 2, "animIn": "bounce", "animOut": "none", "reveal": "page" } },
+    { "id": "karaoke", "label": "Karaoke", "description": "A full line; each word lights up cyan as it is spoken.",
+      "style": { "font": "inter", "size": 6.2, "uppercase": false, "color": "#ffffff", "highlight": "color", "highlightColor": "#26e0ff", "strokeColor": "#000000", "stroke": 0.14, "shadow": 0.04, "y": 76, "wordsPerPage": 6, "maxLines": 2, "animIn": "fade", "animOut": "fade", "reveal": "page" } },
+    { "id": "clean-box", "label": "Clean Box", "description": "White text on a soft black box, easy to read on any picture.",
+      "style": { "font": "poppins", "size": 5.6, "uppercase": false, "color": "#ffffff", "highlight": "none", "box": true, "boxColor": "#000000", "boxOpacity": 0.62, "stroke": 0, "shadow": 0, "y": 80, "wordsPerPage": 7, "maxLines": 2, "animIn": "fade", "animOut": "fade", "reveal": "page" } },
+    { "id": "neon-edge", "label": "Neon Edge", "description": "Cyan letters with a hot-pink edge.",
+      "style": { "font": "inter", "size": 7, "uppercase": true, "color": "#7df9ff", "highlight": "color", "highlightColor": "#ffffff", "strokeColor": "#ff2bd6", "stroke": 0.18, "shadow": 0.06, "y": 68, "wordsPerPage": 3, "maxLines": 2, "animIn": "pop", "animOut": "none", "reveal": "page" } },
+    { "id": "typewriter", "label": "Typewriter", "description": "Words appear one by one in the middle of the picture.",
+      "style": { "font": "oswald", "size": 8, "uppercase": true, "color": "#ffffff", "highlight": "none", "strokeColor": "#000000", "stroke": 0.12, "shadow": 0.05, "y": 50, "wordsPerPage": 5, "maxLines": 2, "animIn": "none", "animOut": "fade", "reveal": "word" } },
+    { "id": "slide-minimal", "label": "Slide-Up Minimal", "description": "Small, calm lines that slide up near the bottom.",
+      "style": { "font": "inter", "size": 4.8, "uppercase": false, "color": "#ffffff", "highlight": "none", "strokeColor": "#000000", "stroke": 0.1, "shadow": 0.06, "y": 86, "wordsPerPage": 8, "maxLines": 2, "animIn": "slide", "animOut": "fade", "reveal": "page" } },
+    { "id": "condensed-headline", "label": "Condensed Headline", "description": "Tall condensed capitals with a gold spoken word.",
+      "style": { "font": "oswald", "size": 9.2, "uppercase": true, "color": "#ffffff", "highlight": "pop", "highlightColor": "#ffc300", "strokeColor": "#000000", "stroke": 0.14, "shadow": 0.05, "y": 66, "wordsPerPage": 3, "maxLines": 2, "animIn": "pop", "animOut": "none", "reveal": "page" } }
+  ]
+}

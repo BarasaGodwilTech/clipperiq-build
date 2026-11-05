@@ -1,0 +1,15 @@
+{
+  "appId": "com.clipperiq.studio",
+  "appName": "ClipperIQ Studio",
+  "webDir": "www",
+  "backgroundColor": "#0a0a0f",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": ["*"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
