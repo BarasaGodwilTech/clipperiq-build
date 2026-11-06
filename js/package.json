@@ -1,5 +1,0 @@
-{
-  "type": "module",
-  "private": true,
-  "description": "Marks js/ as ES modules so the server can import js/shared/* with the same code the browser runs."
-}
