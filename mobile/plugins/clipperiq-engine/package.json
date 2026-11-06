@@ -1,0 +1,9 @@
+{
+  "name": "clipperiq-engine",
+  "version": "1.0.0",
+  "description": "On-device video engine for ClipperIQ Studio (Android, Media3 Transformer)",
+  "main": "index.js",
+  "files": ["android/", "index.js"],
+  "capacitor": { "android": { "src": "android" } },
+  "peerDependencies": { "@capacitor/core": "^6.0.0" }
+}

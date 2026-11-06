@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<title>ClipperIQ Studio</title>
+<style>
+  :root { color-scheme: dark; --bg:#0a0a0f; --bg2:#111118; --bg3:#181820; --line:rgba(255,255,255,.1); --text:#f0f0f5; --muted:#8e8ea6; --accent:#7c5cfc; --accent2:#a78bfa; --ok:#22d3a0; --bad:#f87171; --warn:#f59e0b; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); min-height: 100vh; }
+  main { max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg,#7c5cfc,#a78bfa); display: grid; place-items: center; flex-shrink: 0; }
+  h1 { font-size: 19px; margin: 0; } .sub { font-size: 12px; color: var(--muted); }
+  .card { background: var(--bg2); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  h2 i { font-style: normal; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--accent2); background: rgba(124,92,252,.14); border: 1px solid rgba(124,92,252,.3); }
+  button { font: inherit; color: inherit; }
+  .pick { width: 100%; padding: 26px 16px; border-radius: 14px; border: 1.5px dashed var(--line); background: var(--bg3); text-align: center; cursor: pointer; }
+  .pick b { display: block; font-size: 16px; margin-bottom: 4px; } .pick span { font-size: 12px; color: var(--muted); }
+  .file { display: flex; gap: 12px; align-items: center; } .file[hidden] { display: none; }
+  .file .nm { font-weight: 600; font-size: 14px; word-break: break-all; } .file .mt { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .lbl { font-size: 12px; color: var(--muted); margin: 14px 0 6px; display: flex; justify-content: space-between; } .lbl:first-of-type { margin-top: 0; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seg button, .chips button, .asp button { border: 1px solid var(--line); background: var(--bg3); border-radius: 12px; padding: 11px 10px; text-align: left; cursor: pointer; }
+  .seg button strong { display: block; font-size: 13px; } .seg button span { font-size: 11px; color: var(--muted); }
+  [aria-checked="true"], .on { border-color: var(--accent) !important; background: rgba(124,92,252,.12) !important; box-shadow: 0 0 0 1px var(--accent) inset; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; } .chips button { padding: 9px 16px; border-radius: 99px; font-size: 13px; text-align: center; }
+  .asp { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; } .asp button { padding: 10px 2px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .asp i { border: 2px solid var(--muted); border-radius: 3px; display: block; } .asp b { font-size: 11px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+  .sw { width: 46px; height: 28px; border-radius: 99px; background: var(--bg3); border: 1px solid var(--line); position: relative; cursor: pointer; flex-shrink: 0; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+  .sw[aria-checked="true"] { background: var(--accent); border-color: var(--accent); } .sw[aria-checked="true"]::after { transform: translateX(18px); background: #fff; }
+  dl { margin: 0 0 12px; } dl div { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; } dt { color: var(--muted); } dd { margin: 0; font-weight: 600; text-align: right; }
+  .go { width: 100%; padding: 16px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 700; font-size: 16px; cursor: pointer; }
+  .go:disabled { opacity: .45; } .go.stop { background: var(--bg3); border: 1px solid var(--line); color: var(--text); }
+  .msg { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; min-height: 18px; line-height: 1.5; } .msg.bad { color: var(--bad); } .msg.warn { color: var(--warn); }
+  .bar { height: 8px; border-radius: 99px; background: var(--bg3); overflow: hidden; margin: 12px 0 8px; } .bar > div { height: 100%; width: 0; background: linear-gradient(90deg,var(--accent),var(--accent2)); transition: width .3s; }
+  .prog { font-size: 13px; display: flex; justify-content: space-between; gap: 8px; } .prog span:last-child { color: var(--muted); text-align: right; }
+  .clip { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; } .clip:last-child { border: 0; }
+  .clip .n { flex: 1; min-width: 0; } .clip .n b { display: block; } .clip .n span { color: var(--muted); font-size: 11px; }
+  .clip button { border: 1px solid var(--line); background: var(--bg3); border-radius: 10px; padding: 9px 12px; font-size: 12px; cursor: pointer; }
+  .hide { display: none !important; }
+  .foot { text-align: center; font-size: 12px; color: var(--muted); margin-top: 18px; line-height: 1.7; } .foot a { color: var(--accent2); }
+  .notice { padding: 14px; border-radius: 12px; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.35); font-size: 13px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><polygon points="7 4 20 12 7 20"/></svg></div>
+    <div><h1>ClipperIQ Studio</h1><div class="sub">Cuts clips on your phone. No server needed.</div></div>
+  </header>
+
+  <div id="noNative" class="notice hide">This screen needs the ClipperIQ Android app. Open it from the app, or use the full version on your computer.</div>
+
+  <section class="card" id="cSource">
+    <h2><i>1</i>Choose a video</h2>
+    <button class="pick" id="pick" type="button"><b>Tap to choose a video</b><span>From your gallery or files. Long videos are fine.</span></button>
+    <div class="file" id="file" hidden>
+      <div style="flex:1;min-width:0"><div class="nm" id="fName"></div><div class="mt" id="fMeta"></div></div>
+      <button type="button" id="change" style="border:1px solid var(--line);background:var(--bg3);border-radius:10px;padding:9px 12px;font-size:12px;cursor:pointer">Change</button>
+    </div>
+  </section>
+
+  <section class="card" id="cSetup" style="opacity:.5;pointer-events:none">
+    <h2><i>2</i>Set up your clips</h2>
+    <div class="lbl">How should clips be chosen?</div>
+    <div class="seg" id="mode" role="radiogroup">
+      <button type="button" role="radio" aria-checked="true" data-m="series"><strong>Series</strong><span>The whole video as Part 1, 2, 3…</span></button>
+      <button type="button" role="radio" aria-checked="false" data-m="even"><strong>Spread out</strong><span>Clips evenly across the video</span></button>
+    </div>
+    <div id="evenOpt" class="hide"><div class="lbl"><span>Number of clips</span><b id="cntV">6</b></div><input type="range" id="cnt" min="1" max="20" value="6"></div>
+    <div class="lbl"><span>Length of each clip</span><b id="lenV">0:30</b></div>
+    <div class="chips" id="lens"><button type="button" data-s="15">15s</button><button type="button" data-s="30" class="on">30s</button><button type="button" data-s="60">1 min</button><button type="button" data-s="90">90s</button><button type="button" data-s="180">3 min</button></div>
+    <div class="lbl">Shape</div>
+    <div class="asp" id="asp" role="radiogroup">
+      <button type="button" role="radio" aria-checked="true" data-a="9:16"><i style="width:14px;height:25px"></i><b>9:16</b></button>
+      <button type="button" role="radio" aria-checked="false" data-a="4:5"><i style="width:19px;height:24px"></i><b>4:5</b></button>
+      <button type="button" role="radio" aria-checked="false" data-a="1:1"><i style="width:22px;height:22px"></i><b>1:1</b></button>
+      <button type="button" role="radio" aria-checked="false" data-a="16:9"><i style="width:28px;height:16px"></i><b>16:9</b></button>
+      <button type="button" role="radio" aria-checked="false" data-a="original"><i style="width:26px;height:18px;border-style:dashed"></i><b>As is</b></button>
+    </div>
+    <div class="row" style="margin-top:16px"><span>Show “PART N” on each clip</span><button type="button" class="sw" id="ptxt" role="switch" aria-checked="true" aria-label="Show part number"></button></div>
+    <div class="lbl" id="startRow"><span>Start numbering at part</span><b id="spV">1</b></div>
+    <input type="range" id="sp" min="1" max="50" value="1">
+  </section>
+
+  <section class="card" id="cGo" style="opacity:.5;pointer-events:none">
+    <h2><i>3</i>Review &amp; generate</h2>
+    <dl><div><dt>Video</dt><dd id="sVid">None chosen</dd></div><div><dt>Length</dt><dd id="sLen">—</dd></div><div><dt>Clips</dt><dd id="sCnt">—</dd></div><div><dt>Each clip</dt><dd id="sEach">0:30</dd></div><div><dt>Shape</dt><dd id="sShape">9:16</dd></div></dl>
+    <button class="go" id="go" type="button" disabled>Generate clips</button>
+    <div class="msg" id="msg" aria-live="polite">Choose a video to begin.</div>
+  </section>
+
+  <section class="card hide" id="cRun">
+    <h2><i>⏳</i><span id="runTitle">Cutting clips</span></h2>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="prog"><span id="runTxt">Starting…</span><span id="runEta"></span></div>
+    <button class="go stop" id="stop" type="button" style="margin-top:14px;padding:12px">Stop</button>
+    <div class="msg">Keep this screen open while clips are being cut.</div>
+  </section>
+
+  <section class="card hide" id="cDone">
+    <h2><i>✓</i><span id="doneTitle">Clips ready</span></h2>
+    <div class="msg" style="text-align:left;margin:-4px 0 6px">Saved in your gallery, in the folder <b>Movies / ClipperIQ</b>.</div>
+    <div id="list"></div>
+    <button class="go" id="again" type="button" style="margin-top:14px">Make more clips</button>
+  </section>
+
+  <div class="foot">Prefer to use a ClipperIQ server (your computer or a hosted one)?<br><a href="connect.html?change=1">Connect to a server</a></div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var eng = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.ClipperEngine;
+  var OVERLAP = 3, MAX_RUN = 120;
+  var S = { video: null, mode: 'series', len: 30, aspect: '9:16', ptxt: true, cnt: 6, sp: 1, running: false, maxBar: 0, t0: 0 };
+
+  var clock = function (sec) { sec = Math.max(0, Math.round(sec)); var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return h ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') : m + ':' + String(s).padStart(2, '0'); };
+  var bytes = function (b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(0) + ' MB'; };
+  var say = function (t, cls) { var m = $('msg'); m.textContent = t; m.className = 'msg' + (cls ? ' ' + cls : ''); };
+
+  // Same planning as the desktop app: each part starts 3 s before the previous one ended.
+  function planSeries(durSec, len) {
+    var out = [], overlap = Math.min(OVERLAP, len * 0.25), start = 0;
+    for (var g = 0; g < 100000 && start < durSec; g++) {
+      var d = Math.min(len, durSec - start), fresh = out.length ? d - overlap : d;
+      if (d < 1 || fresh < 1) break;
+      out.push({ start: start, dur: d });
+      if (start + d >= durSec - 1e-6) break;
+      start += len - overlap;
+    }
+    return out;
+  }
+  function planEven(durSec, len, count) {
+    var d = Math.min(len, durSec), n = Math.max(1, Math.min(count, Math.floor(durSec / d)));
+    if (n === 1) return [{ start: Math.max(0, (durSec - d) / 2), dur: d }];
+    var out = [], step = (durSec - d) / (n - 1);
+    for (var i = 0; i < n; i++) out.push({ start: i * step, dur: d });
+    return out;
+  }
+  function plan() {
+    if (!S.video) return [];
+    var sec = S.video.durationMs / 1000;
+    return S.mode === 'series' ? planSeries(sec, S.len) : planEven(sec, S.len, S.cnt);
+  }
+
+  function refresh() {
+    var p = plan(), has = !!S.video;
+    $('cSetup').style.opacity = $('cGo').style.opacity = has ? 1 : .5;
+    $('cSetup').style.pointerEvents = $('cGo').style.pointerEvents = has ? 'auto' : 'none';
+    $('evenOpt').classList.toggle('hide', S.mode !== 'even');
+    $('startRow').classList.toggle('hide', S.mode !== 'series' || !S.ptxt); $('sp').classList.toggle('hide', S.mode !== 'series' || !S.ptxt);
+    $('lenV').textContent = clock(S.len); $('cntV').textContent = S.cnt; $('spV').textContent = S.sp;
+    $('sVid').textContent = has ? S.video.name : 'None chosen'; $('sLen').textContent = has ? clock(S.video.durationMs / 1000) : '—';
+    $('sCnt').textContent = has ? p.length + (p.length === 1 ? ' clip' : ' clips') : '—'; $('sEach').textContent = clock(S.len);
+    $('sShape').textContent = S.aspect === 'original' ? 'As is' : S.aspect;
+    Array.prototype.forEach.call(document.querySelectorAll('#lens button'), function (b) { b.classList.toggle('on', +b.dataset.s === S.len); });
+    var problem = '';
+    if (has && p.length > MAX_RUN) problem = 'That would make ' + p.length + ' clips. One run can make up to ' + MAX_RUN + '. Choose longer clips.';
+    $('go').disabled = !has || !p.length || !!problem || S.running;
+    if (has) say(problem || (p.length ? 'Ready. ' + p.length + ' clip' + (p.length === 1 ? '' : 's') + ' will be cut on this phone.' : 'This video is too short for that length.'), problem ? 'bad' : '');
+  }
+
+  function setSeg(group, attr, val) { Array.prototype.forEach.call(document.querySelectorAll('#' + group + ' button'), function (b) { b.setAttribute('aria-checked', String(b.dataset[attr] === val)); }); }
+  $('mode').addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (!b) return; S.mode = b.dataset.m; setSeg('mode', 'm', S.mode); refresh(); });
+  $('asp').addEventListener('click', function (e) { var b = e.target.closest('button[data-a]'); if (!b) return; S.aspect = b.dataset.a; setSeg('asp', 'a', S.aspect); refresh(); });
+  $('lens').addEventListener('click', function (e) { var b = e.target.closest('button[data-s]'); if (!b) return; S.len = +b.dataset.s; refresh(); });
+  $('ptxt').addEventListener('click', function () { S.ptxt = !S.ptxt; $('ptxt').setAttribute('aria-checked', String(S.ptxt)); refresh(); });
+  $('cnt').addEventListener('input', function () { S.cnt = +this.value; refresh(); });
+  $('sp').addEventListener('input', function () { S.sp = +this.value; refresh(); });
+
+  async function choose() {
+    try {
+      var f = await eng.pickVideo();
+      say('Reading the video…'); $('file').hidden = false; $('pick').classList.add('hide');
+      $('fName').textContent = f.name; $('fMeta').textContent = bytes(f.size || 0) + ' · reading…';
+      var pr = await eng.probe({ uri: f.uri });
+      S.video = { uri: f.uri, name: f.name, size: f.size, durationMs: pr.durationMs, width: pr.width, height: pr.height };
+      $('fMeta').textContent = bytes(f.size || 0) + ' · ' + clock(pr.durationMs / 1000) + (pr.width ? ' · ' + pr.width + '×' + pr.height : '');
+      $('cRun').classList.add('hide'); $('cDone').classList.add('hide'); refresh();
+    } catch (e) {
+      if (e && e.code === 'CANCELLED') { if (!S.video) { $('file').hidden = true; $('pick').classList.remove('hide'); } return; }
+      S.video = null; $('file').hidden = true; $('pick').classList.remove('hide');
+      say((e && e.message) || 'Could not open that video.', 'bad'); refresh();
+    }
+  }
+  $('pick').addEventListener('click', choose); $('change').addEventListener('click', choose);
+
+  function bar(overall, text, eta) {
+    S.maxBar = Math.max(S.maxBar, overall); // never backwards
+    $('bar').style.width = S.maxBar + '%'; $('runTxt').textContent = text; $('runEta').textContent = eta || '';
+  }
+  function etaText(overall, elapsedMs) {
+    if (overall < 4 || elapsedMs < 4000) return '';
+    var left = elapsedMs * (100 - overall) / overall / 1000;
+    if (left < 45) return 'less than a minute left';
+    var m = Math.round(left / 60); return m < 60 ? 'about ' + m + ' min left' : 'about ' + Math.floor(m / 60) + ' h ' + (m % 60) + ' min left';
+  }
+
+  async function generate() {
+    var p = plan(); if (!p.length || S.running) return;
+    S.running = true; S.maxBar = 0; S.t0 = Date.now(); refresh();
+    $('cRun').classList.remove('hide'); $('cDone').classList.add('hide'); bar(0, 'Starting…'); $('cRun').scrollIntoView({ behavior: 'smooth' });
+    var first = S.mode === 'series' ? S.sp : 1;
+    var clips = p.map(function (c, i) { return { startMs: Math.round(c.start * 1000), durationMs: Math.round(c.dur * 1000), part: S.ptxt ? first + i : 0 }; });
+    var handle = await eng.addListener('progress', function (ev) {
+      var what = S.mode === 'series' ? 'part ' + (first + ev.index) : 'clip ' + (ev.index + 1);
+      bar(ev.overall, 'Cutting ' + what + ' of ' + (S.mode === 'series' ? first + ev.total - 1 : ev.total), etaText(ev.overall, ev.elapsedMs));
+    });
+    var after = null;
+    try {
+      var res = await eng.cutClips({ uri: S.video.uri, clips: clips, aspect: S.aspect, partText: S.ptxt, baseName: S.video.name.replace(/\.[^.]+$/, '') });
+      bar(100, (res.clips.length) + ' clip' + (res.clips.length === 1 ? '' : 's') + ' ready');
+      showDone(res.clips);
+    } catch (e) {
+      $('cRun').classList.add('hide');
+      after = (e && e.code === 'CANCELLED') ? ['Stopped. Clips already finished are in your gallery.', 'warn'] : [(e && e.message) || 'Something went wrong while cutting.', 'bad'];
+    } finally { try { handle.remove(); } catch (x) { /* ignore */ } S.running = false; refresh(); }
+    if (after) say(after[0], after[1]);
+  }
+  function showDone(items) {
+    $('cRun').classList.add('hide'); $('cDone').classList.remove('hide');
+    $('doneTitle').textContent = items.length + ' clip' + (items.length === 1 ? '' : 's') + ' ready';
+    var l = $('list'); l.textContent = '';
+    items.forEach(function (c) {
+      var row = document.createElement('div'); row.className = 'clip';
+      var n = document.createElement('div'); n.className = 'n';
+      var b = document.createElement('b'); b.textContent = c.part ? 'Part ' + c.part : c.name;
+      var s = document.createElement('span'); s.textContent = clock(c.startMs / 1000) + ' → ' + clock((c.startMs + c.durationMs) / 1000);
+      n.appendChild(b); n.appendChild(s); row.appendChild(n);
+      [['Play', 'openClip'], ['Share', 'shareClip']].forEach(function (a) {
+        var btn = document.createElement('button'); btn.type = 'button'; btn.textContent = a[0];
+        btn.addEventListener('click', function () { eng[a[1]]({ uri: c.uri }).catch(function (e) { say((e && e.message) || 'Could not do that.', 'bad'); }); });
+        row.appendChild(btn);
+      });
+      l.appendChild(row);
+    });
+    $('cDone').scrollIntoView({ behavior: 'smooth' });
+  }
+  $('go').addEventListener('click', generate);
+  $('stop').addEventListener('click', function () { eng.cancel().catch(function () {}); });
+  $('again').addEventListener('click', function () { $('cDone').classList.add('hide'); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  if (!eng) { $('noNative').classList.remove('hide'); $('pick').disabled = true; }
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+name: Build installer and APK
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install --omit=dev
+        working-directory: server
+      - run: npm install
+        working-directory: desktop
+      - run: npm run dist
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with: { name: ClipperIQ-Windows, path: "desktop/dist/*.exe" }
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm install
+        working-directory: mobile
+      - run: npx cap add android
+        working-directory: mobile
+      - run: npx capacitor-assets generate --android
+        working-directory: mobile
+      - run: npx cap sync android
+        working-directory: mobile
+      - run: chmod +x gradlew && ./gradlew assembleDebug
+        working-directory: mobile/android
+      - uses: actions/upload-artifact@v4
+        with: { name: ClipperIQ-Android-apk, path: mobile/android/app/build/outputs/apk/debug/*.apk }

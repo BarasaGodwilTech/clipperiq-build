@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClipperIQ Admin</title>
+<link rel="stylesheet" href="../css/styles.css">
+<link rel="stylesheet" href="../css/components.css">
+<link rel="stylesheet" href="../css/auth.css">
+<style>
+  body { 
+    padding: 40px; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center;
+    background: var(--bg);
+  }
+  .container { 
+    max-width: 600px; 
+    width: 100%;
+    margin: 0 auto; 
+  }
+  .hidden { display: none !important; }
+  @media (max-width: 600px) {
+    body {
+      padding: 24px 16px;
+    }
+  }
+</style>
+</head>
+<body class="logged-out">
+
+<!-- ══ LOGIN ══ -->
+<div class="view active" id="view-login" style="width:100%;">
+  <div class="auth-container">
+    <div class="auth-box">
+      <div class="auth-logo">
+        <div class="auth-logo-mark">Super Admin</div>
+      </div>
+      <div class="auth-title">Admin Login</div>
+      <div class="auth-error" id="authError"></div>
+      
+      <div id="emailSignInForm">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="username">
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" id="authBtn" style="width:100%;justify-content:center;padding:12px">Sign In</button>
+        <div class="auth-toggle">Don't have an account? <a id="toggleToSignUp">Create one</a></div>
+        <div style="display:flex;align-items:center;gap:12px;margin:16px 0">
+          <div style="height:1px;background:var(--border);flex:1"></div>
+          <div style="color:var(--muted);font-size:12px">or</div>
+          <div style="height:1px;background:var(--border);flex:1"></div>
+        </div>
+      </div>
+
+      <div id="emailSignUpForm" class="hidden">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="regEmail" type="email" placeholder="you@example.com" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="regPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password">
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label class="form-label">Confirm Password</label>
+          <input class="form-input" id="regConfirm" type="password" placeholder="Re-enter password" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" id="registerBtn" style="width:100%;justify-content:center;padding:12px">Create Account</button>
+        <div class="auth-toggle">Already have an account? <a id="toggleToSignIn">Sign in</a></div>
+        <div style="display:flex;align-items:center;gap:12px;margin:16px 0">
+          <div style="height:1px;background:var(--border);flex:1"></div>
+          <div style="color:var(--muted);font-size:12px">or</div>
+          <div style="height:1px;background:var(--border);flex:1"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost" id="authGoogleBtn" style="width:100%;justify-content:center;padding:12px;background:var(--bg3);border:1px solid var(--border);">
+        <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right:8px"><path fill="#EA4335" d="M5.266 9.765A7.077 7.077 0 0 1 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.27 0 3.198 2.698 1.24 6.65l4.026 3.115Z"/><path fill="#34A853" d="M16.04 18.013c-1.09.703-2.474 1.078-4.04 1.078a7.077 7.077 0 0 1-6.723-4.823l-4.04 3.067A11.965 11.965 0 0 0 12 24c2.933 0 5.735-1.043 7.834-3l-3.793-2.987Z"/><path fill="#4A90E2" d="M19.834 21c2.195-2.048 3.62-5.096 3.62-9 0-.71-.109-1.473-.272-2.182H12v4.637h6.436c-.317 1.559-1.17 2.766-2.395 3.558L19.834 21Z"/><path fill="#FBBC05" d="M5.277 14.268A7.12 7.12 0 0 1 4.909 12c0-.782.125-1.533.357-2.235L1.24 6.65A11.934 11.934 0 0 0 0 12c0 1.92.445 3.73 1.237 5.335l4.04-3.067Z"/></svg>
+        Sign In with Google
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADMIN DASHBOARD ══ -->
+<div class="view" id="view-admin" style="width:100%; display:none;">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-title">API Keys Configuration</div>
+      <button class="btn btn-danger btn-sm" id="logoutBtn">Logout</button>
+    </div>
+    
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">TikTok API</div>
+      <div class="form-group">
+        <label class="form-label">Client Key</label>
+        <input class="form-input" id="tiktokClientKey">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Client Secret</label>
+        <input class="form-input" type="password" id="tiktokClientSecret">
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Facebook / Instagram API</div>
+      <div class="form-group">
+        <label class="form-label">App ID</label>
+        <input class="form-input" id="facebookAppId">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">App Secret</label>
+        <input class="form-input" type="password" id="facebookAppSecret">
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Google / YouTube API</div>
+      <div class="form-group">
+        <label class="form-label">Client ID</label>
+        <input class="form-input" id="googleClientId">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Client Secret</label>
+        <input class="form-input" type="password" id="googleClientSecret">
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Backend Configuration</div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Backend Base URL</label>
+        <input class="form-input" id="backendBaseUrl" placeholder="https://your-backend.example.com">
+      </div>
+      <div id="backendSaveStatus" style="margin-top:10px;text-align:center;font-size:13px;color:var(--success);display:none;">
+        Saved backend URL!
+      </div>
+      <button class="btn btn-primary" id="saveBackendUrlBtn" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-top:10px;">
+        Save Backend URL
+      </button>
+    </div>
+
+    <button class="btn btn-primary" id="saveApiKeysBtn" style="width:100%;justify-content:center;padding:12px;font-size:14px;">
+      Save Global API Keys
+    </button>
+    
+    <div id="saveStatus" style="margin-top:10px;text-align:center;font-size:13px;color:var(--success);display:none;">
+      Saved successfully to Firebase!
+    </div>
+  </div>
+</div>
+
+<script type="module" src="admin.js"></script>
+</body>
+</html>
