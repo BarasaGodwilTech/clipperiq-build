@@ -613,14 +613,17 @@ export class DesignerPad {
   _ltForClip() {
     let part = 1; let len = 0;
     try { part = this._getPart ? Number(this._getPart()) || 1 : 1; len = this._getClipLen ? Number(this._getClipLen()) || 0 : 0; } catch { /* the preview falls back to part 1 */ }
-    return resolveLowerThird(this.lt, { part, clipDuration: len });
+    return resolveLowerThird(this.lt, { part, clipDuration: len, isLast: !!this.previewLast });
   }
+
+  /** Shows the preview the way the final part will look (its closing text, or nothing if it is set to hide). */
+  setPreviewLast(on) { this.previewLast = !!on; this.setLowerThird({}); }
 
   /** Any lower third of the clip as the first clip will have it. */
   _ltResolved(spec) {
     let part = 1; let len = 0;
     try { part = this._getPart ? Number(this._getPart()) || 1 : 1; len = this._getClipLen ? Number(this._getClipLen()) || 0 : 0; } catch { /* part 1 */ }
-    return resolveLowerThird(spec, { part, clipDuration: len });
+    return resolveLowerThird(spec, { part, clipDuration: len, isLast: !!this.previewLast });
   }
 
   /** Plays the lower third's animation once on the preview. */

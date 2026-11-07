@@ -4,7 +4,7 @@ import { mountLtTimeline } from './ltTimeline.js';
 // (pad.frame / pad.lt, see js/shared/); the pad draws the live preview and the server renders the same thing.
 import { FRAME_MODES, FRAME_BGS, FRAME_PRESETS, defaultFrame } from '../shared/framing.js';
 import {
-  LT_STYLES, LT_IN, LT_OUT, LT_LOOPS, LT_FONTS, LT_FONT_FILES, LT_PRESETS, defaultLowerThird, normalizeLowerThird,
+  LT_STYLES, LT_IN, LT_OUT, LT_LOOPS, LT_LAST, LT_FONTS, LT_FONT_FILES, LT_PRESETS, defaultLowerThird, normalizeLowerThird,
 } from '../shared/lowerThird.js';
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -124,6 +124,17 @@ export function mountLowerThirdPanel(pad, root) {
           <label>Stays for <input class="form-input ed-time" id="${n}LtHold" type="number" min="0.5" max="120" step="0.5" value="6"></label>
           <label>Repeat every <input class="form-input ed-time" id="${n}LtRepeat" type="number" min="0" step="1" value="0" title="0 = show once"></label></div>
         <div class="ed-row ed-row-inline"><label class="ed-check" title="Shows it once, just before each clip ends: right for 'Follow for the next part'"><input type="checkbox" id="${n}LtAtEnd"> Show near the end of every clip</label></div>
+        <div class="ed-sec-title" style="margin-top:6px">On the last part</div>
+        <div class="ed-row"><label for="${n}LtLast">What it does on the final part of a run</label>
+          <select class="form-input form-select" id="${n}LtLast">${opts(LT_LAST, 'same')}</select>
+          <div class="ed-hint">Made for "Follow for Part {next}": the last part has no next part. If more parts will follow in a later run, untick "This run ends the series" on the Upload screen.</div></div>
+        <div id="${n}LtLastBox" style="display:none">
+          <div class="ed-row"><label for="${n}LtLastTitle">Closing text</label><input class="form-input" id="${n}LtLastTitle" maxlength="70" placeholder="Thanks for watching!"></div>
+          <div class="ed-row"><label for="${n}LtLastSub">Second line</label><input class="form-input" id="${n}LtLastSub" maxlength="110"></div>
+          <div class="ed-row ed-row-inline">
+            <label>Label <input class="form-input" id="${n}LtLastTag" maxlength="24" style="width:110px"></label>
+            <label>Button <input class="form-input" id="${n}LtLastCta" maxlength="26" style="width:130px"></label></div></div>
+        <div class="ed-row ed-row-inline"><label class="ed-check" title="Shows the preview the way the final part will look"><input type="checkbox" id="${n}LtPrevLast"> Preview as the last part</label></div>
         <div class="ed-row ed-row-inline"><button class="btn btn-ghost btn-sm" id="${n}LtPlay" type="button">&#9654; Preview animation</button>
           <label class="ed-check" title="Plays the animation again by itself a moment after you change its motion, style or timing"><input type="checkbox" id="${n}LtAuto"> Replay automatically</label></div>
         <div class="ed-hint">Drag it in the preview to move it. The preview stays in view while you scroll.</div>
@@ -165,6 +176,8 @@ export function mountLowerThirdPanel(pad, root) {
   bindSel('LtFont', 'font'); bindSel('LtIn', 'in'); bindSel('LtOut', 'out'); bindSel('LtLoop', 'loop');
   bindNum('LtSize', 'size', 100); bindNum('LtY', 'y', 100); bindNum('LtSpeed', 'speed', 100);
   bindNum('LtStart', 'start'); bindNum('LtHold', 'hold'); bindNum('LtRepeat', 'repeat');
+  bindSel('LtLast', 'last'); bindText('LtLastTitle', 'lastTitle'); bindText('LtLastSub', 'lastSubtitle'); bindText('LtLastTag', 'lastTag'); bindText('LtLastCta', 'lastCta');
+  $('LtPrevLast').addEventListener('change', (e) => pad.setPreviewLast(e.target.checked));
   $('LtAtEnd').addEventListener('change', (e) => pad.setLowerThird({ atEnd: e.target.checked }));
   $('LtYAuto').addEventListener('click', () => set({ y: null }));
   root.querySelectorAll('.ed-seg button').forEach((b) => b.addEventListener('click', () => set({ align: b.dataset.align })));
@@ -202,6 +215,12 @@ export function mountLowerThirdPanel(pad, root) {
       if (!typing('LtStart')) $('LtStart').value = String(s.start);
       if (!typing('LtHold')) $('LtHold').value = String(s.hold);
       if (!typing('LtRepeat')) $('LtRepeat').value = String(s.repeat);
+      $('LtLast').value = s.last || 'same'; $('LtLastBox').style.display = s.last === 'text' ? '' : 'none';
+      if (!typing('LtLastTitle')) $('LtLastTitle').value = s.lastTitle || '';
+      if (!typing('LtLastSub')) $('LtLastSub').value = s.lastSubtitle || '';
+      if (!typing('LtLastTag')) $('LtLastTag').value = s.lastTag || '';
+      if (!typing('LtLastCta')) $('LtLastCta').value = s.lastCta || '';
+      $('LtPrevLast').checked = !!pad.previewLast;
       $('LtAtEnd').checked = !!s.atEnd;
       $('LtStart').disabled = !!s.atEnd; $('LtRepeat').disabled = !!s.atEnd; // the end of the clip decides when it shows
       root.querySelectorAll('.ed-seg button').forEach((b) => b.classList.toggle('on', b.dataset.align === s.align));

@@ -130,9 +130,20 @@
       </div>
 
       <div class="row" style="margin-top:16px"><span>Show “PART N” on each clip</span><button type="button" class="sw" id="ptxt" role="switch" aria-checked="true" aria-label="Show part number"></button></div>
+      <div class="row" style="margin-top:14px" id="endsRow"><span>This run ends the series <span class="help" style="display:block;margin:2px 0 0">The last part can say something different (set under Lower thirds). Switch off if more parts follow later.</span></span><button type="button" class="sw" id="ends" role="switch" aria-checked="true" aria-label="This run ends the series"></button></div>
       <div id="startWrap"><div class="lbl"><span>Start numbering at part</span><b id="spV">1</b></div><input type="range" id="sp" min="1" max="99" value="1" aria-label="First part number"></div>
       <div class="lbl">Name for the saved files</div>
       <input type="text" id="pfx" maxlength="40" placeholder="Taken from the video's name" autocomplete="off">
+    </section>
+
+    <section class="card" id="cLook">
+      <h2><i>🎨</i>Look: framing &amp; adjustments</h2>
+      <div id="lookMount"></div>
+    </section>
+
+    <section class="card" id="cLt">
+      <h2><i>▭</i>Lower thirds</h2>
+      <div id="ltMount"></div>
     </section>
 
     <section class="card" id="cGo" style="opacity:.5;pointer-events:none">
@@ -215,7 +226,12 @@
   <button type="button" role="tab" data-t="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 00-2-1.2L14 3h-4l-.6 2.7a7 7 0 00-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 002 1.2L10 21h4l.6-2.7a7 7 0 002-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg>Settings</button>
 </nav>
 
-<script>
+<script type="module">
+import { loadConfigAndFonts, planFx, overlaysForClip, parseDesktopProfile, outputSize } from './studioFx.js';
+import { mountFxUi } from './fxUi.js';
+import { normalizeLowerThird, normalizeLowerThirds } from './shared/lowerThird.js';
+import { normalizeAdjust, defaultAdjust } from './shared/adjust.js';
+import { normalizeFrame, defaultFrame } from './shared/framing.js';
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
@@ -246,7 +262,7 @@
 
   // ───────────── state ─────────────
   var DEFAULTS = { mode: 'series', len: 30, aspect: '9:16', ptxt: true, cnt: 6, sp: 1, pfx: '' };
-  var S = Object.assign({ video: null, rs: 0, re: 0, running: false, maxBar: 0 }, DEFAULTS);
+  var S = Object.assign({ video: null, rs: 0, re: 0, running: false, maxBar: 0, frame: defaultFrame(), adjust: defaultAdjust(), lts: [], sel: 0, ends: true }, DEFAULTS);
   var settings = lsGet('cq.settings', { remember: true });
   if (settings.remember) { var last = lsGet('cq.last', null); if (last) applyLook(last, true); }
   var BUILTIN = [
@@ -255,11 +271,12 @@
     { name: 'Square post', mode: 'even', len: 30, aspect: '1:1', ptxt: false, cnt: 6, sp: 1 },
     { name: 'YouTube', mode: 'even', len: 120, aspect: '16:9', ptxt: false, cnt: 5, sp: 1 },
   ];
+  var fxui = null;
   var userPresets = lsGet('cq.presets', []);
   var library = lsGet('cq.library', []);   // runs: { id, at, source, clips: [{uri,name,part,startMs,durationMs}] }
   var schedule = lsGet('cq.schedule', []); // { id, nid, uri, clipName, platform, at, caption, done }
 
-  function look() { return { mode: S.mode, len: S.len, aspect: S.aspect, ptxt: S.ptxt, cnt: S.cnt, sp: S.sp, pfx: S.pfx }; }
+  function look() { return { mode: S.mode, len: S.len, aspect: S.aspect, ptxt: S.ptxt, cnt: S.cnt, sp: S.sp, pfx: S.pfx, frame: S.frame, adjust: S.adjust, lts: S.lts }; }
   function applyLook(p, silent) {
     if (!p) return;
     if (p.mode === 'series' || p.mode === 'even') S.mode = p.mode;
@@ -269,7 +286,10 @@
     if (isFinite(p.cnt)) S.cnt = clamp(Math.round(p.cnt), 1, 30);
     if (isFinite(p.sp)) S.sp = clamp(Math.round(p.sp), 1, 99);
     if (typeof p.pfx === 'string') S.pfx = p.pfx.slice(0, 40);
-    if (!silent) syncControls();
+    if (p.frame && typeof p.frame === 'object') S.frame = normalizeFrame(p.frame);
+    if (p.adjust && typeof p.adjust === 'object') S.adjust = normalizeAdjust(p.adjust);
+    if (Array.isArray(p.lts)) { S.lts = p.lts.slice(0, 6).map(function (x) { return normalizeLowerThird(x); }); S.sel = 0; }
+    if (!silent) { syncControls(); if (fxui) fxui.rebuild(); }
   }
 
   // ───────────── navigation ─────────────
@@ -342,16 +362,19 @@
     if (has) say('msg', problem || (p.length ? 'Ready. ' + p.length + ' clip' + (p.length === 1 ? '' : 's') + ' will be cut on this phone.' : 'This part is too short for that clip length.'), problem ? 'bad' : '');
     if (settings.remember) lsSet('cq.last', look());
   }
+  var previewTimer = 0;
+  function previewSoon() { clearTimeout(previewTimer); previewTimer = setTimeout(function () { if (fxui) fxui.refreshPreview(); }, 250); }
   function setSeg(group, attr, val) { Array.prototype.forEach.call(document.querySelectorAll('#' + group + ' button'), function (b) { b.setAttribute('aria-checked', String(b.dataset[attr] === val)); }); }
   $('mode').addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (!b) return; S.mode = b.dataset.m; setSeg('mode', 'm', S.mode); refresh(); });
-  $('asp').addEventListener('click', function (e) { var b = e.target.closest('button[data-a]'); if (!b) return; S.aspect = b.dataset.a; setSeg('asp', 'a', S.aspect); refresh(); });
-  $('lens').addEventListener('click', function (e) { var b = e.target.closest('button[data-s]'); if (!b) return; S.len = +b.dataset.s; refresh(); });
+  $('asp').addEventListener('click', function (e) { var b = e.target.closest('button[data-a]'); if (!b) return; S.aspect = b.dataset.a; setSeg('asp', 'a', S.aspect); refresh(); if (fxui) fxui.rebuild(); });
+  $('lens').addEventListener('click', function (e) { var b = e.target.closest('button[data-s]'); if (!b) return; S.len = +b.dataset.s; refresh(); previewSoon(); });
   $('lenM').addEventListener('click', function () { S.len = clamp(S.len - 5, 2, 600); refresh(); });
   $('lenP').addEventListener('click', function () { S.len = clamp(S.len + 5, 2, 600); refresh(); });
   $('lenT').addEventListener('change', function () { var v = parseClock(this.value); if (isFinite(v) && v >= 2) S.len = clamp(Math.round(v), 2, 600); this.value = clock(S.len); refresh(); });
   $('ptxt').addEventListener('click', function () { S.ptxt = !S.ptxt; $('ptxt').setAttribute('aria-checked', String(S.ptxt)); refresh(); });
   $('cnt').addEventListener('input', function () { S.cnt = +this.value; refresh(); });
-  $('sp').addEventListener('input', function () { S.sp = +this.value; refresh(); });
+  $('sp').addEventListener('input', function () { S.sp = +this.value; refresh(); previewSoon(); });
+  $('ends').addEventListener('click', function () { S.ends = !S.ends; $('ends').setAttribute('aria-checked', String(S.ends)); });
   $('pfx').addEventListener('input', function () { S.pfx = this.value; refresh(); });
 
   // range
@@ -394,7 +417,7 @@
       S.rs = 0; S.re = Math.floor(pr.durationMs / 1000);
       $('rs').max = $('re').max = S.re; $('fMeta').textContent = bytes(f.size || 0) + ' · ' + clock(pr.durationMs / 1000) + (pr.width ? ' · ' + pr.width + '×' + pr.height : '');
       $('rangeBox').classList.remove('hide'); $('cRun').classList.add('hide'); $('cDone').classList.add('hide');
-      syncRange('S'); loadFrame('E');
+      syncRange('S'); loadFrame('E'); if (fxui) fxui.rebuild();
     } catch (e) {
       if (e && e.code === 'CANCELLED') { if (!S.video) { $('file').classList.add('hide'); $('pick').classList.remove('hide'); } return; }
       S.video = null; $('file').classList.add('hide'); $('pick').classList.remove('hide'); $('rangeBox').classList.add('hide');
@@ -417,20 +440,30 @@
   $('impFile').addEventListener('change', function () { var f = this.files && this.files[0]; if (!f) return; var r = new FileReader(); r.onload = function () { $('impText').value = String(r.result || ''); }; r.onerror = function () { say('impMsg', 'Could not read that file.', 'bad'); }; r.readAsText(f); });
   function normPreset(p, fallbackName) {
     var o = { name: String(p.name || fallbackName || 'Imported').slice(0, 30) };
-    var a = Object.assign({}, DEFAULTS); Object.keys(a).forEach(function (k) { if (k in p) a[k] = p[k]; });
-    var save = S; S = Object.assign({}, S); applyLook(a, true); var out = look(); S = save; delete out.pfx; return Object.assign(o, out);
+    var save = S; S = Object.assign({}, DEFAULTS, { frame: defaultFrame(), adjust: defaultAdjust(), lts: [], sel: 0 });
+    applyLook(p, true); var out = look(); S = save;
+    ['mode', 'len', 'aspect', 'ptxt', 'cnt', 'sp'].forEach(function (k) { if (k in p) o[k] = out[k]; });
+    if (p.frame && typeof p.frame === 'object') o.frame = out.frame;
+    if (p.adjust && typeof p.adjust === 'object') o.adjust = out.adjust;
+    if (Array.isArray(p.lts)) o.lts = out.lts;
+    return o;
   }
   function parseImport(text) {
     var j; try { j = JSON.parse(text); } catch (e) { throw new Error('That is not a settings or presets file (it could not be read).'); }
-    if (j && j.kind === 'settings-profile' && j.processing) {
-      var pr = j.processing, notes = [];
-      var p = normPreset({ name: 'From my computer', mode: pr.seriesMode ? 'series' : 'even', len: pr.clipDuration, cnt: pr.maxClips, aspect: pr.aspectRatio, ptxt: pr.overlayFormat !== 'none', sp: pr.seriesStartPart });
-      if (!pr.seriesMode) notes.push('"Best moments" becomes "Spread out" here, because moment detection is not on the phone yet.');
-      notes.push('Lower thirds, captions, music and overlays are not used by the phone engine yet.');
-      return { presets: [p], apply: p, notes: notes };
+    if (j && j.kind === 'settings-profile') {
+      var d = parseDesktopProfile(j), presets = [];
+      var main = { name: 'From my computer' };
+      if (d.look) Object.assign(main, d.look);
+      if (d.frame) main.frame = d.frame;
+      if (d.adjust) main.adjust = d.adjust;
+      if (d.lowerThirds) main.lts = d.lowerThirds.filter(function (x) { return x.enabled; });
+      var mainP = normPreset(main, 'From my computer'); presets.push(mainP);
+      d.adjustPresets.forEach(function (x) { presets.push(normPreset({ name: 'Adjust: ' + x.name, adjust: x.adjust }, 'Adjust')); });
+      d.designs.forEach(function (x) { presets.push(normPreset(x, 'Design')); });
+      return { presets: presets.slice(0, 40), apply: mainP, notes: d.notes, summary: d.summary };
     }
     var list = j && j.kind === 'clipperiq-phone-presets' ? j.presets : (Array.isArray(j) ? j : null);
-    if (list && list.length) return { presets: list.filter(function (x) { return x && typeof x === 'object'; }).slice(0, 40).map(function (x, i) { return normPreset(x, 'Imported ' + (i + 1)); }), apply: null, notes: [] };
+    if (list && list.length) return { presets: list.filter(function (x) { return x && typeof x === 'object'; }).slice(0, 40).map(function (x, i) { return normPreset(x, 'Imported ' + (i + 1)); }), apply: null, notes: [], summary: [] };
     throw new Error('This is not a ClipperIQ settings file or presets file.');
   }
   $('impOk').addEventListener('click', function () {
@@ -438,7 +471,7 @@
       var r = parseImport($('impText').value.trim());
       r.presets.forEach(function (p) { userPresets = userPresets.filter(function (u) { return u.name !== p.name; }).concat([p]); });
       lsSet('cq.presets', userPresets); renderPresets(); if (r.apply) applyLook(r.apply);
-      say('impMsg', 'Imported ' + r.presets.length + ' preset' + (r.presets.length === 1 ? '' : 's') + (r.apply ? ' and applied it' : '') + '. ' + r.notes.join(' '), 'ok');
+      say('impMsg', 'Imported ' + r.presets.length + ' preset' + (r.presets.length === 1 ? '' : 's') + (r.apply ? ' and applied it' : '') + (r.summary && r.summary.length ? ' (' + r.summary.join(', ') + ')' : '') + '. ' + r.notes.join(' '), 'ok');
     } catch (e) { say('impMsg', e.message, 'bad'); }
   });
   function copyText(t) { return navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(t) : Promise.reject(new Error('no clipboard')); }
@@ -459,15 +492,23 @@
     S.running = true; S.maxBar = 0; refresh();
     $('cRun').classList.remove('hide'); $('cDone').classList.add('hide'); bar(0, 'Starting…'); $('cRun').scrollIntoView({ behavior: 'smooth' });
     var first = S.mode === 'series' ? S.sp : 1;
+    var fx = planFx({ frame: S.frame, adjust: S.adjust, aspect: S.aspect, srcW: S.video.width || 1920, srcH: S.video.height || 1080 });
     var clips = p.map(function (c, i) { return { startMs: Math.round(c.start * 1000), durationMs: Math.round(c.dur * 1000), part: S.ptxt ? first + i : 0 }; });
+    var activeLts = S.lts.filter(function (x) { return x && x.enabled; }); var sent = new Set(); var base0 = activeLts.length ? 10 : 0;
     var base = (S.pfx.trim() || S.video.name.replace(/\.[^.]+$/, ''));
     var handle = await eng.addListener('progress', function (ev) {
       var what = S.mode === 'series' ? 'part ' + (first + ev.index) : 'clip ' + (ev.index + 1);
-      bar(ev.overall, 'Cutting ' + what + ' of ' + (S.mode === 'series' ? first + ev.total - 1 : ev.total), etaText(ev.overall, ev.elapsedMs));
+      bar(base0 + ev.overall * (100 - base0) / 100, 'Cutting ' + what + ' of ' + (S.mode === 'series' ? first + ev.total - 1 : ev.total), etaText(ev.overall, ev.elapsedMs));
     });
     var after = null;
     try {
-      var res = await eng.cutClips({ uri: S.video.uri, clips: clips, aspect: S.aspect, partText: S.ptxt, baseName: base });
+      if (activeLts.length) {
+        for (var i = 0; i < clips.length; i++) {
+          bar(Math.min(9, 9 * i / clips.length), 'Preparing lower thirds for ' + (S.mode === 'series' ? 'part ' + (first + i) : 'clip ' + (i + 1)) + '…');
+          clips[i].overlays = await overlaysForClip(eng, activeLts, { part: first + i, clipDuration: p[i].dur / fx.speed, outW: fx.outW, outH: fx.outH, isLast: S.ends && i === clips.length - 1 }, sent);
+        }
+      }
+      var res = await eng.cutClips({ uri: S.video.uri, clips: clips, aspect: S.aspect, partText: S.ptxt, baseName: base, fx: fx });
       bar(100, res.clips.length + ' clip' + (res.clips.length === 1 ? '' : 's') + ' ready');
       library.unshift({ id: uid(), at: Date.now(), source: S.video.name, clips: res.clips.map(function (c) { return { uri: c.uri, name: c.name, part: c.part, startMs: c.startMs, durationMs: c.durationMs }; }) });
       library = library.slice(0, 60); lsSet('cq.library', library); badges();
@@ -475,7 +516,7 @@
     } catch (e) {
       $('cRun').classList.add('hide');
       after = (e && e.code === 'CANCELLED') ? ['Stopped. Clips already finished are in your gallery.', 'warn'] : [(e && e.message) || 'Something went wrong while cutting.', 'bad'];
-    } finally { try { handle.remove(); } catch (x) { /* ignore */ } S.running = false; refresh(); }
+    } finally { try { handle.remove(); } catch (x) { /* ignore */ } try { if (eng.clearOverlays) eng.clearOverlays(); } catch (x) { /* ignore */ } S.running = false; refresh(); }
     if (after) say('msg', after[0], after[1]);
   }
   function clipRow(c, withSchedule, onRemove) {
@@ -590,7 +631,11 @@
   if (!eng) { $('noNative').classList.remove('hide'); $('pick').disabled = true; }
   $('remember').setAttribute('aria-checked', String(settings.remember));
   renderPresets(); syncControls(); badges();
-  window.__phoneStudio = { plan: plan, state: function () { return S; }, parseImport: parseImport };
+  $('ends').setAttribute('aria-checked', String(S.ends));
+  fxui = mountFxUi($('lookMount'), $('ltMount'), { state: function () { return S; }, onChange: function () { refresh(); }, frameImage: function () { return $('thS'); }, src: function () { return S.video && S.video.width ? { w: S.video.width, h: S.video.height } : null; }, aspect: function () { return S.aspect; }, part: function () { return S.mode === 'series' ? S.sp : 1; }, clipLen: function () { return S.len; } });
+  fxui.rebuild(); loadConfigAndFonts().then(function () { fxui.rebuild(); });
+  $('thS').addEventListener('load', function () { fxui.refreshPreview(); });
+  window.__phoneStudio = { plan: plan, state: function () { return S; }, parseImport: parseImport, fx: function () { return planFx({ frame: S.frame, adjust: S.adjust, aspect: S.aspect, srcW: (S.video && S.video.width) || 1920, srcH: (S.video && S.video.height) || 1080 }); } };
 })();
 </script>
 </body>

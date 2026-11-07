@@ -185,6 +185,7 @@ export const uploadUI = {
       try { localStorage.setItem('cliq_speedProfile', speedProfile); } catch {}
       const seriesMode = document.getElementById('seriesMode')?.checked || false;
       const seriesStartPart = parseInt(document.getElementById('seriesStartPart')?.value || '1');
+      const endsSeries = document.getElementById('endsSeries') ? document.getElementById('endsSeries').checked : true;
       const overlayFormat = document.getElementById('overlayFormat')?.value || 'part-text';
       const aspectRatio = document.getElementById('aspectRatio')?.value || '9:16';
       // Optional audio mix (only applied when BGM provided)
@@ -230,7 +231,7 @@ export const uploadUI = {
       await clipGenerator.processUpload(
         upload.id,
         (progress) => this._onProgress(progress, { seriesMode, seriesStartPart, cloudProcessing }),
-        { targetDuration, maxClips, reEncode, speedProfile, seriesMode, seriesStartPart, overlayFormat, aspectRatio, bgm, originalVolume, cloudProcessing, videoBlob: cloudProcessing ? this.currentFile : null, ...editOpts }
+        { targetDuration, maxClips, reEncode, speedProfile, seriesMode, seriesStartPart, endsSeries, overlayFormat, aspectRatio, bgm, originalVolume, cloudProcessing, videoBlob: cloudProcessing ? this.currentFile : null, ...editOpts }
       );
 
       this.hideModal();

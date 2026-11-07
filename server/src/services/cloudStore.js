@@ -408,7 +408,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     };
   }
 
-  function createJob({ uploadId, candidates, reEncode, aspectRatio, overlayFormat, seriesStartPart, bgm, originalVolume, fit, frame, lowerThird, lowerThirds, adjust, captions, customOverlayId, speedProfile, parentJobId, clipIndex, requestId, origin }, baseUrl) {
+  function createJob({ uploadId, candidates, reEncode, aspectRatio, overlayFormat, seriesStartPart, endsSeries, lastPartNumber, bgm, originalVolume, fit, frame, lowerThird, lowerThirds, adjust, captions, customOverlayId, speedProfile, parentJobId, clipIndex, requestId, origin }, baseUrl) {
     const frameSpec = plainObject(frame, 'framing');
     // several lower thirds per clip (a list); `lowerThird` (a single one) is still accepted
     if (lowerThirds != null && !Array.isArray(lowerThirds)) throw new HttpError(400, 'Invalid lower thirds');
@@ -464,9 +464,16 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     //    moment ago, gives back that job instead of a second one.
     const fingerprint = crypto.createHash('sha1').update(JSON.stringify([
       uploadId, list.map((c) => [Math.round((Number(c.start) || 0) * 100), Math.round((Number(c.duration) || 0) * 100)]), String(aspectRatio || ''), String(overlayFormat || ''),
-      Number(seriesStartPart) || 1, !!reEncode, fit, originalVolume, bgmSpec, customOverlay, frameSpec, lowerThirdSpec, lowerThirdsSpec, adjustSpec, captionsSpec, speedProfile, parent ? [parent.id, ci] : null,
+      Number(seriesStartPart) || 1, !!reEncode, fit, originalVolume, bgmSpec, customOverlay, frameSpec, lowerThirdSpec, lowerThirdsSpec, adjustSpec, captionsSpec, speedProfile, parent ? [parent.id, ci] : null, endsSeries === false, Number(lastPartNumber) || 0,
     ])).digest('hex');
     const reqKey = requestId ? String(requestId).slice(0, 80) : null;
+    // The number of the final part of the series, so a lower third can say something else there ("Follow for Part 7" makes no sense
+    // on the last one). A re-render of one clip keeps what the job it belongs to says; otherwise the last clip of this run is the last
+    // part unless the person said the series goes on.
+    let lastPart = null;
+    if (parent) lastPart = parent.lastPartNumber == null ? null : parent.lastPartNumber;
+    else if (Number.isFinite(Number(lastPartNumber)) && Number(lastPartNumber) > 0) lastPart = Math.round(Number(lastPartNumber));
+    else if (endsSeries !== false) lastPart = (Number(seriesStartPart) || 1) + list.length - 1;
     const known = reqKey ? jobsCol.all().find((j) => j.requestId === reqKey && j.uploadId === uploadId) : null;
     if (known) { logger.info(`cloud job ${known.id}: the same request arrived again (${reqKey}); not making another job`); return known.id; }
     const twin = jobsCol.all().find((j) => j.fingerprint === fingerprint && j.uploadId === uploadId && !['failed', 'cancelled'].includes(j.status)
@@ -479,7 +486,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
       outDir: path.join(jobDirOf(rootId), 'clips'), baseUrl,
       candidates: list, reEncode: !!reEncode,
       aspectRatio: String(aspectRatio || 'original'), fit: fit === 'blur' ? 'blur' : 'crop',
-      overlayFormat: String(overlayFormat || 'none'), seriesStartPart: Number(seriesStartPart) || 1,
+      overlayFormat: String(overlayFormat || 'none'), seriesStartPart: Number(seriesStartPart) || 1, lastPartNumber: lastPart,
       bgm: bgmSpec, originalVolume: Math.max(0, Math.min(1, Number(originalVolume ?? 1))),
       customOverlayId: customOverlay, frame: frameSpec, lowerThird: lowerThirdSpec, lowerThirds: lowerThirdsSpec, adjust: adjustSpec, captions: captionsSpec,
       speedProfile: ['balanced', 'fast', 'turbo'].includes(speedProfile) ? speedProfile : 'balanced',
@@ -681,6 +688,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
           src, inputFile: u.filePath, start, duration, outFile: tmpFile,
           captions: capCues && capCues.length ? { style: capStyle, cues: capLib.cuesInWindow(capCues, start, start + duration) } : null,
           partNumber: (Number(job.seriesStartPart) || 1) + i, // this clip's part number: what {part} / {next} in a lower third mean
+          isLastPart: job.lastPartNumber != null && (Number(job.seriesStartPart) || 1) + i === job.lastPartNumber,
           aspectRatio: job.aspectRatio, fit: job.fit, frame: job.frame || null, lowerThird: job.lowerThird || null, lowerThirds: job.lowerThirds || null, adjust: job.adjust || null, reEncode: job.reEncode,
           profile: job.speedProfile || 'balanced',
           customOverlay: customOverlayFile ? { file: customOverlayFile } : null,

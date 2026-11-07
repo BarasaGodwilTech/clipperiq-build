@@ -388,7 +388,7 @@ function createRenderer({ ff, config, logger }) {
     for (const [n, ltSpec] of ltSpecs.entries()) {
       // Like the part number, a lower third is an extra: if one can't be drawn the clip is still made (with the others).
       try {
-        const layer = await lowerThirds.prepare(ltSpec, { width: geo.outW, height: geo.outH, clipDuration: expectDur, workDir, partNumber: spec.partNumber });
+        const layer = await lowerThirds.prepare(ltSpec, { width: geo.outW, height: geo.outH, clipDuration: expectDur, workDir, partNumber: spec.partNumber, isLast: !!spec.isLastPart });
         if (layer) preparedLts.push(layer);
       } catch (e) {
         logger?.warn(`render: lower third ${n + 1} failed (${e.message})`);

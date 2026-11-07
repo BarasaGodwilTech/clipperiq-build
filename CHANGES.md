@@ -421,3 +421,11 @@ The message hid the reason (it only went to the console) and sat in a corner of 
 - Phone app v2: navigation (Studio, Library, Schedule, Settings), adjustable start/end with previews, presets (save, import the
   computer settings file, export), library, reminders with notifications, backup. New native method: frame preview.
 - Tests: self-test (5), analysis tasks (6), storage (13), analyzer modes (6).
+
+## Update 11: last-part lower thirds, phone lower thirds and look
+- New option for every lower third: **On the last part** (same / do not show / show different text). The Follow template closes with
+  "Thanks for watching!". Upload screen: "This run ends the series" (untick when more parts follow later). A single clip re-rendered
+  later keeps knowing whether it is the last part. Old designs behave exactly as before.
+- Phone app: lower thirds (drawn with the same code as the computer), framing and adjustments (brightness, contrast, saturation, speed,
+  pitch, flips, zoom), the last-part option, and import of the computer's settings file including adjustment presets and saved designs.
+- Tests: last-part logic (5). Verified on the real engine: the right words reach each part, also when one clip is re-rendered alone.

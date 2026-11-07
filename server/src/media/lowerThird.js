@@ -136,11 +136,11 @@ function createLowerThirdRenderer({ ff, config, logger }) {
    * Returns the layer for this lower third at this frame size, drawing it if it doesn't exist yet:
    * { file, y, start, loop } or null when nothing shows within the clip. Throws if it can't be drawn.
    */
-  async function prepare(rawSpec, { width, height, clipDuration, workDir, signal, partNumber = 1 }) {
+  async function prepare(rawSpec, { width, height, clipDuration, workDir, signal, partNumber = 1, isLast = false }) {
     if (!rawSpec) return null;
     const shared = await loadShared();
     // this clip's own text ("Follow for Part {next}" -> "Follow for Part 4") and, if asked, its start near the end of the clip
-    const spec = shared.resolveLowerThird(rawSpec, { part: partNumber, clipDuration });
+    const spec = shared.resolveLowerThird(rawSpec, { part: partNumber, clipDuration, isLast });
     if (!spec.enabled) return null;
     const plan = shared.lowerThirdLayerPlan(spec, clipDuration);
     if (!plan) return null;

@@ -37,6 +37,12 @@ export const LT_LOOPS = [
   { id: 'shine', label: 'Shine sweep' },
   { id: 'pulse', label: 'Pulse' },
 ];
+/** What the strap does on the LAST part of a run (e.g. "Follow for Part 6" must not appear when there is no part 6). */
+export const LT_LAST = [
+  { id: 'same', label: 'Same as the other parts' },
+  { id: 'hide', label: 'Do not show it' },
+  { id: 'text', label: 'Show different text' },
+];
 export const LT_FONTS = [
   { id: 'archivo', label: 'Archivo Black (heavy)' },
   { id: 'inter', label: 'Inter (clean)' },
@@ -61,7 +67,7 @@ export const LT_PRESETS = [
   { id: 'promo', label: 'Promo / sale', spec: { style: 'banner', tag: 'SALE', title: 'UP TO 50% OFF', subtitle: 'This weekend only', cta: 'SHOP NOW', accent: '#ff3b30', bg: '#111827', font: 'archivo', in: 'slide', out: 'slide', loop: 'shine', align: 'left' } },
   { id: 'sponsor', label: 'Sponsored by…', spec: { style: 'bar', tag: 'SPONSORED', title: 'Your Brand Name', subtitle: 'Use code CLIP10 for 10% off', cta: 'Learn more', accent: '#2f80ed', bg: '#0f172a', font: 'inter', in: 'slide', out: 'slide', loop: 'shine', align: 'left' } },
   // {next} is replaced by each clip's own next part number, so every clip points at the part that follows it; atEnd shows it as the clip ends
-  { id: 'follow', label: 'Follow / subscribe', spec: { style: 'pill', tag: '', title: 'Follow for Part {next}', subtitle: '', cta: '', accent: '#fe2c55', bg: '#111111', font: 'inter', in: 'zoom', out: 'zoom', loop: 'pulse', align: 'center', hold: 4, repeat: 0, atEnd: true } },
+  { id: 'follow', label: 'Follow / subscribe', spec: { last: 'text', lastTitle: 'Thanks for watching!', style: 'pill', tag: '', title: 'Follow for Part {next}', subtitle: '', cta: '', accent: '#fe2c55', bg: '#111111', font: 'inter', in: 'zoom', out: 'zoom', loop: 'pulse', align: 'center', hold: 4, repeat: 0, atEnd: true } },
   { id: 'announce', label: 'Announcement', spec: { style: 'card', tag: 'NEW', title: 'New episode every Friday', subtitle: 'Turn on notifications so you never miss it', cta: '', accent: '#f5b301', bg: '#18181b', font: 'inter', in: 'rise', out: 'fade', loop: 'none', align: 'center' } },
   { id: 'name', label: 'Name & title', spec: { style: 'minimal', tag: '', title: 'Speaker Name', subtitle: 'Role · Company', cta: '', accent: '#22d3ee', bg: '#000000', font: 'oswald', in: 'wipe', out: 'fade', loop: 'none', align: 'left' } },
 ];
@@ -79,6 +85,7 @@ export function defaultLowerThird() {
     align: 'left', y: null, size: 1,
     in: 'slide', out: 'same', loop: 'shine', speed: 1,
     start: 2, hold: 6, repeat: 0, atEnd: false,
+    last: 'same', lastTag: '', lastTitle: 'Thanks for watching!', lastSubtitle: '', lastCta: '',
   };
 }
 
@@ -105,6 +112,9 @@ export function normalizeLowerThird(raw) {
     hold: num(r.hold, d.hold, 0.5, 120),
     repeat: num(r.repeat, 0, 0, 36000),
     atEnd: !!r.atEnd,
+    last: oneOf(r.last, LT_LAST, d.last),
+    lastTag: str(r.lastTag, 24), lastTitle: r.lastTitle === undefined ? d.lastTitle : str(r.lastTitle, 70),
+    lastSubtitle: str(r.lastSubtitle, 110), lastCta: str(r.lastCta, 26),
   };
   if (spec.repeat > 0) spec.repeat = Math.max(spec.repeat, 1);
   if (!spec.title && !spec.subtitle && !spec.cta && !spec.tag) spec.enabled = false; // nothing to show
@@ -138,8 +148,13 @@ export function hasPartTokens(spec) { return !!spec && [spec.tag, spec.title, sp
  * to show near the end of the clip, its start worked out from the clip's finished length (`clipDuration`, seconds).
  * Both the live preview and the server draw from this, so a clip numbered Part 4 says "Follow for Part 5" in both.
  */
-export function resolveLowerThird(rawSpec, { part = 1, clipDuration = 0 } = {}) {
-  const spec = normalizeLowerThird(fixLegacyFollow(normalizeLowerThird(rawSpec))); // (rawSpec is stored data here, so the old text is converted)
+export function resolveLowerThird(rawSpec, { part = 1, clipDuration = 0, isLast = false } = {}) {
+  let spec = normalizeLowerThird(fixLegacyFollow(normalizeLowerThird(rawSpec))); // (rawSpec is stored data here, so the old text is converted)
+  if (isLast && spec.last === 'hide') return { ...spec, enabled: false };
+  if (isLast && spec.last === 'text') { // the closing words instead of the usual ones; the look and timing stay
+    spec = { ...spec, tag: spec.lastTag, title: spec.lastTitle, subtitle: spec.lastSubtitle, cta: spec.lastCta };
+    if (!spec.title && !spec.subtitle && !spec.cta && !spec.tag) return { ...spec, enabled: false };
+  }
   const n = Math.max(1, Math.round(Number(part)) || 1);
   const sub = (t, max) => str(String(t).replace(PART_TOKEN, (_, k) => String(k.toLowerCase() === 'next' ? n + 1 : n)), max);
   const out = { ...spec, tag: sub(spec.tag, 24), title: sub(spec.title, 70), subtitle: sub(spec.subtitle, 110), cta: sub(spec.cta, 26) };
@@ -156,8 +171,8 @@ export function resolveLowerThird(rawSpec, { part = 1, clipDuration = 0 } = {}) 
  * When a lower third is on screen in a clip, as the timeline shows it: { start, end, repeats: [{ start, end }] } in seconds of the
  * finished clip. `end` is when the first showing is gone (in-animation + stays + out-animation).
  */
-export function lowerThirdWindows(rawSpec, { part = 1, clipDuration = 0 } = {}) {
-  const r = resolveLowerThird(rawSpec, { part, clipDuration });
+export function lowerThirdWindows(rawSpec, { part = 1, clipDuration = 0, isLast = false } = {}) {
+  const r = resolveLowerThird(rawSpec, { part, clipDuration, isLast });
   const tl = lowerThirdTimeline(r, clipDuration > 0 ? clipDuration : Infinity);
   const repeats = tl.starts.map((s) => ({ start: s, end: s + tl.total }));
   return { start: r.start, end: r.start + tl.total, total: tl.total, inDur: tl.inDur, outDur: tl.outDur, repeats, atEnd: !!normalizeLowerThird(rawSpec).atEnd };

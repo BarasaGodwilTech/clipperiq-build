@@ -20,6 +20,21 @@ from the finished run, copy it to the phone and open it (allow "install unknown 
   opens the share sheet. Reminders can be a few minutes late (Android saves battery). Posting itself happens in the app you share to.
 - Settings: remember last settings, notification permission, backup/restore as text, link to a ClipperIQ server.
 
+## Look, lower thirds and your computer's settings (phone engine v3)
+- **Lower thirds:** the same ones as on the computer (5 styles, fonts, colours, slide / rise / fade / zoom / wipe / type motion,
+  shine and pulse, timing, repeat, near-the-end, up to 6 per clip, `{part}` and `{next}`). The phone draws them with the same
+  code as the Windows version, so the preview you see is what is cut.
+- **On the last part:** choose what a lower third does on the final part of a run: same as the others, do not show it, or show
+  different text (the Follow template says "Thanks for watching!"). "This run ends the series" switches this on or off.
+- **Look:** framing (fill or fit, zoom, move), brightness, contrast, colour strength, speed, voice pitch (with or without keeping
+  the voice), extra zoom, flips.
+- **Presets from the computer:** Import accepts the settings file saved on Windows and applies the clip settings, framing,
+  adjustments and lower thirds, and also brings in the saved adjustment presets and saved designs as presets.
+- Not on the phone yet: blurred background (black bars instead), reverb, captions, text/sticker/picture overlays, music.
+
+`www/shared/` holds copies of the computer version's `lowerThird.js`, `adjust.js`, `framing.js`, the limits file and the fonts.
+After changing those on the computer, run `node mobile/sync-shared.js` and rebuild.
+
 ## What the phone app does NOT have yet (planned next)
 - Smart "best moments" detection (audio and scene scoring). The phone offers Series and evenly spread clips; the computer version has Best moments.
 - Lower thirds, captions, background music, custom overlays and automatic posting.

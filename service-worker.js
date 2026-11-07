@@ -1,6 +1,6 @@
 // Bump this on every deploy that changes any cached file (js/, css/, index.html, etc.) —
 // otherwise returning visitors keep loading the old cached version indefinitely.
-const CACHE_VERSION = 'clipperiq-v41';
+const CACHE_VERSION = 'clipperiq-v42';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

@@ -350,6 +350,7 @@ export class ClipGenerator {
       reEncode = false,
       seriesMode = false,
       seriesStartPart = 1,
+      endsSeries = true,
       overlayFormat = 'part-text',
       aspectRatio = 'original',
       bgm = null,
@@ -393,7 +394,7 @@ export class ClipGenerator {
 
     // What is needed to run this upload again if it fails before a server job exists (kept small and plain: no files).
     const processOptions = {
-      maxClips, targetDuration, reEncode, seriesMode, seriesStartPart, overlayFormat, aspectRatio, originalVolume, cloudProcessing, speedProfile,
+      maxClips, targetDuration, reEncode, seriesMode, seriesStartPart, endsSeries, overlayFormat, aspectRatio, originalVolume, cloudProcessing, speedProfile,
       rangeStart: rangeStartOpt, rangeEnd: rangeEndOpt, look: look || null,
       bgm: bgm && bgm.type === 'url' ? bgm : null, // a music FILE is not kept; a link is
       captionCues: look && look.captions && look.captions.enabled ? captionCues : null,
@@ -489,6 +490,7 @@ export class ClipGenerator {
         aspectRatio,
         overlayFormat,
         seriesStartPart,
+        endsSeries,
         originalVolume,
         speedProfile,
         frame: look && look.frame,
@@ -788,6 +790,8 @@ export class ClipGenerator {
         aspectRatio: options.aspectRatio,
         overlayFormat: options.overlayFormat,
         seriesStartPart: options.seriesStartPart,
+        endsSeries: options.endsSeries === false ? false : undefined,   // false: more parts will follow, so no part is treated as the last
+        lastPartNumber: options.lastPartNumber || undefined,
         originalVolume: options.originalVolume,
         fit: options.fit,
         bgm: options.bgm || null,
