@@ -13,7 +13,8 @@
     "@capacitor/android": "^6.2.0",
     "@capacitor/cli": "^6.2.0",
     "@capacitor/core": "^6.2.0",
-    "clipperiq-engine": "file:plugins/clipperiq-engine"
+    "clipperiq-engine": "file:plugins/clipperiq-engine",
+    "@capacitor/local-notifications": "^6.1.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5"

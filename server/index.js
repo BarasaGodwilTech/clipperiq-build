@@ -36,6 +36,8 @@ const { createInstagramUploadRouter } = require('./src/routes/instagramUpload');
 const { createMediaRouter } = require('./src/routes/media');
 const { createConfigRouter } = require('./src/routes/config');
 const { createStorageRouter } = require('./src/routes/storage');
+const { createDiagnosticsRouter } = require('./src/routes/diagnostics');
+const { createSelfTest } = require('./src/services/selfTest');
 const { createStateRouter } = require('./src/routes/state');
 const { createStateStore } = require('./src/services/stateStore');
 
@@ -93,6 +95,7 @@ async function main() {
   app.use('/api', createMediaRouter({ ytdlp, logger }));
   app.use('/api/config', createConfigRouter({ config }));
   app.use('/api/storage', createStorageRouter({ config, cloud, logger }));
+  app.use('/api/diagnostics', createDiagnosticsRouter({ selfTest: createSelfTest({ cloud, ff, config, logger }) }));
   app.use('/api/state', createStateRouter({ stateStore }));
 
   // Rendered clips and Instagram-publish files.

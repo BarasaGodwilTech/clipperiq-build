@@ -5,6 +5,7 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.media.MediaMetadataRetriever;
@@ -15,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.util.Base64;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
@@ -50,6 +52,7 @@ import com.google.common.collect.ImmutableList;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -152,6 +155,35 @@ public class ClipperEnginePlugin extends Plugin {
                 call.resolve(ret);
             } catch (Exception e) {
                 call.reject("This file could not be read as a video: " + e.getMessage());
+            } finally {
+                try { mmr.release(); } catch (Exception ignored) { }
+            }
+        }).start();
+    }
+
+    /** One picture from the video at a given time (for choosing where clips start and end). Returns a small JPEG as a data url. */
+    @PluginMethod
+    public void frame(final PluginCall call) {
+        final String uriStr = call.getString("uri");
+        final Long at = call.getLong("atMs", 0L);
+        final Integer w = call.getInt("width", 320);
+        if (uriStr == null) { call.reject("No video given."); return; }
+        new Thread(() -> {
+            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+            try {
+                mmr.setDataSource(getContext(), Uri.parse(uriStr));
+                Bitmap bmp = mmr.getFrameAtTime((at == null ? 0L : at) * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                if (bmp == null) { call.reject("No picture at that time."); return; }
+                int tw = Math.max(64, Math.min(1080, w == null ? 320 : w));
+                int th = Math.max(1, Math.round(bmp.getHeight() * (tw / (float) bmp.getWidth())));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, tw, th, true);
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.JPEG, 70, bos);
+                JSObject ret = new JSObject();
+                ret.put("dataUrl", "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Could not read a picture: " + e.getMessage());
             } finally {
                 try { mmr.release(); } catch (Exception ignored) { }
             }

@@ -990,6 +990,17 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     return { removed: true };
   }
 
+  /** Removes the files and records of named jobs and one upload (used by the self-test so it leaves nothing behind). */
+  async function purge({ uploadId, jobIds = [] } = {}) {
+    for (const jid of jobIds) {
+      const j = jobsCol.get(String(jid));
+      if (j) { try { await removeJobFiles(j); } catch { /* best effort */ } jobsCol.remove(j.id); }
+    }
+    const u = uploadId ? uploadsCol.get(String(uploadId)) : null;
+    if (u) { await fs.promises.unlink(u.filePath).catch(() => {}); uploadsCol.remove(u.id); }
+    db.markDirty();
+  }
+
   /**
    * One-off tidy at start-up: job folders with nothing in them (jobs that failed or were stopped before making a clip, and
    * folders whose job is gone) are removed. A job that is still queued or running is left alone.
@@ -1065,7 +1076,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     return jobsCol.all().some((j) => j.status === 'queued' || j.status === 'running');
   }
 
-  return { isBusy, initUpload, writeChunk, ensureReady, analyze, startAnalysis, getAnalysis, cancelAnalysis, frame, createJob, getJob: (id) => view(getJob(id)), retryJob, cancelJob, discardUpload, findUpload, readClipChunk, cleanup, recover, clipsDir, jobsRoot,
+  return { isBusy, initUpload, writeChunk, ensureReady, analyze, startAnalysis, getAnalysis, cancelAnalysis, frame, createJob, getJob: (id) => view(getJob(id)), retryJob, cancelJob, discardUpload, purge, findUpload, readClipChunk, cleanup, recover, clipsDir, jobsRoot,
     captionEngine, readCaptions, saveCaptions, startTranscription, getTranscription, cancelTranscription };
 }
 

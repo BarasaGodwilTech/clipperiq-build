@@ -412,3 +412,12 @@ The message hid the reason (it only went to the console) and sat in a corner of 
 - Films (a keyframe about every 10 s) now use the fast keyframe sampling too; measured on a 25-minute video: 5 s.
 - Failures in this step now say what went wrong.
 - New tests: analysis tasks (6), analyzer modes.
+
+## Update 10: Test processing, phone app v2
+- Settings > Diagnostics > Test processing: makes a short video and runs upload, reading, Best moments and Series (fast and 9:16 with
+  PART label) through the real engine, then reports every step in plain words and leaves nothing behind. Needs no internet.
+- Verified on the real engine: 11 file types (MP4, MKV, WebM, AVI, MOV, HEVC, TS, no-audio, two audio tracks, long keyframe gap,
+  4-second clip) x Best moments and Series x fast and 9:16: all 44 runs correct length with sound. A 25-minute video analyses in about 5 s.
+- Phone app v2: navigation (Studio, Library, Schedule, Settings), adjustable start/end with previews, presets (save, import the
+  computer settings file, export), library, reminders with notifications, backup. New native method: frame preview.
+- Tests: self-test (5), analysis tasks (6), storage (13), analyzer modes (6).
