@@ -145,7 +145,14 @@ async function main() {
       extractZip(zip, path.join(tmp, 'x'));
       const exe = findExe(path.join(tmp, 'x'));
       if (!exe) throw new Error(`whisper-cli.exe was not found inside ${asset.name}`);
-      for (const f of fs.readdirSync(path.dirname(exe))) { const src = path.join(path.dirname(exe), f); if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(OUT_DIR, f)); }
+      // keep the speech program and its libraries only: the release also carries ~20 test and demo programs the app never uses
+      const KEEP_EXE = new Set(['whisper-cli.exe', 'main.exe']);
+      for (const f of fs.readdirSync(path.dirname(exe))) {
+        const src = path.join(path.dirname(exe), f);
+        if (!fs.statSync(src).isFile()) continue;
+        if (/\.exe$/i.test(f) && !KEEP_EXE.has(f.toLowerCase())) continue;
+        fs.copyFileSync(src, path.join(OUT_DIR, f));
+      }
       fs.writeFileSync(path.join(OUT_DIR, 'VERSION.json'), JSON.stringify({ whisperCpp: release.tag_name, asset: asset.name, model: MODELS[choice], fetchedAt: new Date().toISOString() }, null, 2));
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
