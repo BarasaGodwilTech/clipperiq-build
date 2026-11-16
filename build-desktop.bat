@@ -15,6 +15,18 @@ cd /d "%ROOT%server"
 call npm install --omit=dev
 if errorlevel 1 goto :fail
 
+rem ffmpeg and ffprobe come in as "optional" packages: if their download failed, npm carries on without them and the installer would
+rem be built WITHOUT video tools. Stop here instead, with a clear message.
+if not exist "%ROOT%server\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe" (
+  echo [ERROR] ffmpeg was not downloaded ^(check the internet connection / antivirus^), so the installer would not work.
+  echo         Delete the folder "%ROOT%server\node_modules" and run this file again.
+  goto :fail
+)
+if not exist "%ROOT%server\node_modules\ffprobe-static\bin\win32\x64\ffprobe.exe" (
+  echo [ERROR] ffprobe was not downloaded. Delete the folder "%ROOT%server\node_modules" and run this file again.
+  goto :fail
+)
+
 echo [2/3] Installing desktop builder...
 cd /d "%ROOT%desktop"
 if not exist package.json (
@@ -24,7 +36,7 @@ if not exist package.json (
 call npm install
 if errorlevel 1 goto :fail
 
-echo [3/3] Building the Windows installer...
+echo [3/3] Building the Windows installer (first time: downloads the captions engine, about 200 MB)...
 call npm run dist
 if errorlevel 1 goto :fail
 

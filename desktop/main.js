@@ -14,6 +14,7 @@ const { fork } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 
 // The page origin (and so the app's saved library in the browser database) is tied to this address, so the port
 // is fixed. If something else holds it we say so, instead of silently moving to another port and "losing" the library.
@@ -23,6 +24,10 @@ const URL_BASE = `http://${HOST}:${PORT}`;
 
 const ROOT = app.isPackaged ? path.join(process.resourcesPath, 'app-root') : path.resolve(__dirname, '..');
 const SERVER_ENTRY = path.join(ROOT, 'server', 'index.js');
+
+// A secret made fresh at every start. The server refuses every request that doesn't carry it, and only this program's window has it,
+// so web pages open in a browser can't talk to the server (see server/src/middleware/desktopGuard.js).
+const TOKEN = crypto.randomBytes(32).toString('hex');
 
 let serverProc = null;
 let win = null;
@@ -59,8 +64,12 @@ function ping(timeoutMs = 1500) {
 function startServer() {
   fs.mkdirSync(dataDir(), { recursive: true });
   lastServerOutput = '';
+  const settings = readSettingsEnv();
   const env = {
-    ...process.env, ...readSettingsEnv(),
+    ...process.env, ...settings,
+    // Use the graphics card to encode when this computer has a working one (falls back to the processor by itself); settings.env can override
+    VIDEO_ENCODER: process.env.VIDEO_ENCODER || settings.VIDEO_ENCODER || 'auto',
+    CLIPPERIQ_DESKTOP: '1', CLIPPERIQ_TOKEN: TOKEN,
     ELECTRON_RUN_AS_NODE: '1',           // run the server with Electron's built-in Node: no separate Node install needed
     HOST, PORT: String(PORT), DATA_DIR: dataDir(), NODE_ENV: 'production',
     STORAGE_CONFIG_FILE: path.join(userDir(), 'storage-location.json'), // where a folder chosen in Settings > Storage is remembered
@@ -115,6 +124,12 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
+ipcMain.on('set-progress', (e, f) => {
+  if (!win || win.isDestroyed()) return;
+  const n = Number(f);
+  win.setProgressBar(Number.isFinite(n) && n >= 0 ? Math.min(1, n) : -1);
+});
+
 ipcMain.handle('choose-folder', async () => {
   const r = await dialog.showOpenDialog(win || undefined, { title: 'Choose where ClipperIQ keeps videos and clips', properties: ['openDirectory', 'createDirectory'] });
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
@@ -152,6 +167,7 @@ if (!app.requestSingleInstanceLock()) { app.quit(); } else {
     }
     // Start from a fresh HTTP cache so an updated install never shows old files (the app's saved library is not touched)
     try { await session.defaultSession.clearCache(); } catch { /* ignore */ }
+    try { await session.defaultSession.cookies.set({ url: URL_BASE, name: 'ciq_token', value: TOKEN, httpOnly: true, sameSite: 'strict' }); } catch (e) { console.error('could not set the app secret', e); }
     createWindow();
   });
 

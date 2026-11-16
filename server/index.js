@@ -28,6 +28,7 @@ const { createOverlayStore } = require('./src/services/overlayStore');
 const { createCloudStore } = require('./src/services/cloudStore');
 const { createTranscriber } = require('./src/media/transcriber');
 const { createBasicAuth } = require('./src/middleware/basicAuth');
+const { createDesktopGuard } = require('./src/middleware/desktopGuard');
 const { notFoundHandler, createErrorHandler } = require('./src/middleware/errorHandler');
 const { createCloudRouter } = require('./src/routes/cloud');
 const { createTikTokRouter } = require('./src/routes/tiktok');
@@ -70,7 +71,9 @@ async function main() {
   // Permissive CORS by default so the frontend works whether it's opened from this same
   // server, a file:// page during development, or a different host — narrow this with
   // ALLOWED_ORIGINS in .env once you have a fixed production domain.
+  const lockedToApp = !!(config.desktop.enabled && config.desktop.token); // desktop app: same-origin only, no cross-site access at all
   app.use((req, res, next) => {
+    if (lockedToApp) return next();
     const origin = req.header('origin');
     const allowed = config.allowedOrigins;
     res.setHeader('Access-Control-Allow-Origin', (!allowed.length || (origin && allowed.includes(origin))) ? (origin || '*') : allowed[0]);
@@ -84,6 +87,7 @@ async function main() {
     next();
   });
 
+  app.use(createDesktopGuard(config));
   app.use(createBasicAuth(config));
 
   app.get('/healthz', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
@@ -95,7 +99,7 @@ async function main() {
   app.use('/api', createMediaRouter({ ytdlp, logger }));
   app.use('/api/config', createConfigRouter({ config }));
   app.use('/api/storage', createStorageRouter({ config, cloud, logger }));
-  app.use('/api/diagnostics', createDiagnosticsRouter({ selfTest: createSelfTest({ cloud, ff, config, logger }) }));
+  app.use('/api/diagnostics', createDiagnosticsRouter({ selfTest: createSelfTest({ cloud, ff, config, logger, transcriber }) }));
   app.use('/api/state', createStateRouter({ stateStore }));
 
   // Rendered clips and Instagram-publish files.

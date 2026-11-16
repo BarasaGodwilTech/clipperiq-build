@@ -103,7 +103,8 @@ function createTranscriber({ ff, config, logger }) {
     let v = null;
     if (want === 'off') v = { engine: 'off', ready: false, hint: 'Auto captions are switched off (CAPTION_ENGINE=off). You can still import an .srt / .vtt file or type captions.' };
     else {
-      const order = want === 'auto' ? ['faster-whisper', 'whisper-cpp', 'openai-api'] : [want];
+      // (with the engine that ships in the installer present, that one comes first: it needs nothing else installed)
+      const order = want === 'auto' ? (cfg.bundled ? ['whisper-cpp', 'faster-whisper', 'openai-api'] : ['faster-whisper', 'whisper-cpp', 'openai-api']) : [want];
       for (const name of order) { v = await tryEngine(name); if (v) break; }
       if (!v) v = { engine: want === 'auto' ? 'none' : want, ready: false, hint: SETUP_HINT };
     }

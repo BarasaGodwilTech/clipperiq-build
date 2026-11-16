@@ -16,3 +16,6 @@ desktop/dist/
 desktop/node_modules/
 mobile/node_modules/
 mobile/android/
+
+# Speech-to-text engine downloaded for the installer (see server/scripts/fetch-captions.js)
+server/vendor/

@@ -429,3 +429,43 @@ The message hid the reason (it only went to the console) and sat in a corner of 
 - Phone app: lower thirds (drawn with the same code as the computer), framing and adjustments (brightness, contrast, saturation, speed,
   pitch, flips, zoom), the last-part option, and import of the computer's settings file including adjustment presets and saved designs.
 - Tests: last-part logic (5). Verified on the real engine: the right words reach each part, also when one clip is re-rendered alone.
+
+## Update 12: Squeeze screens, two movies at once, captions in the installer
+- NEW Squeeze screens (editor: "Squeeze screen"): the video shrinks into a window while an animated branded frame slides in around it, holds,
+  then the video returns to full screen. 9 templates (L-Bar Classic, Bottom Banner, Side Panel, Corner Pop, Soft Card, Neon Frame, Breaking
+  Ticker, Sale Burst, Story Stack), each laid out for wide, square and tall video. Editable brand, big number, title, description, button,
+  ticker, colours, font, your own logo / product / QR pictures, transition (glide / bounce / snap), shine / pulse / scrolling ticker,
+  speed, timing (appears at / stays for / repeat / near the end), window size and flip. {part} and {next} work in the texts. Lower thirds,
+  captions and overlays are drawn on top. Preview in the editor is animated and uses the same drawing code as the render.
+  Verified on the real engine, frame by frame: full screen before, the picture inside the window with the frame around it while held, full
+  screen after; length and sound unchanged; the drawn frames are cached and shared by clips with the same look.
+- Two (or three) movies at once: every clip render in the server now takes one of CLIP_CONCURRENCY shared slots, first come first served, so
+  movies share the computer fairly instead of fighting over it. MAX_CONCURRENT_RENDERS defaults to 3. On the Upload page press "Run in
+  background" in the progress window, choose the next movie, and start it; each run keeps its own progress, the finished one says so without
+  pulling you away. Tested with two movies on the real engine and in the page.
+- Captions with nothing to install: the installer build now downloads the whisper.cpp program and a speech model once (server/scripts/
+  fetch-captions.js, run by "npm run dist"), and the app uses it automatically (CAPTIONS_MODEL=tiny|base|small|medium, default small;
+  SKIP_CAPTIONS_FETCH=1 builds without). Test processing now reports the captions engine.
+- Tests: squeeze (6 + real render 2), slots (5), captions bundle (5), self-test (6).
+
+
+## Update 24: native desktop speed and safety (Windows app)
+- **No more copying the video.** In the desktop app a chosen or dropped video is used where it is on your disk. Before, a
+  multi-GB movie was read, sent through the local server in 8 MB pieces and written again (minutes, and a second copy on disk).
+  Now it is registered instantly. Your original is never modified or deleted by the app (clean-up only removes copies the
+  app made itself). If a linked file is moved or renamed, the app says so and asks you to choose it again.
+  The browser version still uploads as before.
+- **Graphics-card encoding on by default** in the desktop app (NVIDIA NVENC, Intel Quick Sync, AMD AMF). It falls back to
+  the processor by itself when there is no working one or a render fails. To force the processor, put `VIDEO_ENCODER=libx264`
+  in the settings file (File > Open settings file).
+- **The local server is locked to the app's own window.** Before, any web page open in your browser could send requests to
+  the app's server on 127.0.0.1. Now every request needs a secret that is created at each start and given only to the app
+  window, the Host must be the loopback address, and cross-site (CORS) access is off. Browser/VPS use is unchanged.
+- **Taskbar progress**: the Windows taskbar button shows how far the clips are, even with the window minimised.
+- **build-desktop.bat** stops with a clear message if ffmpeg/ffprobe failed to download (before, it quietly built an
+  installer without video tools).
+- Desktop version 2.2.0.
+
+Files: desktop/main.js, desktop/preload.js, desktop/package.json, build-desktop.bat, js/core/clipGenerator.js, js/app.js,
+server/index.js, server/src/config.js, server/src/routes/cloud.js, server/src/services/cloudStore.js,
+server/src/middleware/desktopGuard.js (new), server/test/link-upload.test.js (new).

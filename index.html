@@ -789,7 +789,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="window.uploadUI?.runInBackground?.()">Run in background</button>
+      <button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="window.uploadUI?.runInBackground?.()" title="Hides this window and lets you start another movie while this one works">Run in background</button>
       <button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="window.uploadUI?.cancelOrClose?.()">Stop processing</button>
     </div>
   </div>

@@ -65,3 +65,27 @@ test('refuses to run while videos are processing, and only one test runs at a ti
   const { st } = setup(); const a = st.start(); const b = st.start();
   assert.strictEqual(a.testId, b.testId); await finish(st, a);
 });
+
+test('a missing captions engine is reported as a warning and does not fail the test', async () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cliq-st3-'));
+  const config = { rootDir: dir, dirs: { tmp: path.join(dir, 'tmp'), data: dir }, captions: { bundled: false } };
+  const jobs = {};
+  const cloud = {
+    jobsRoot: path.join(dir, 'jobs'), isBusy: () => false, initUpload: async () => 'u1',
+    writeChunk: async (id, req) => { await new Promise((r) => { req.on('data', () => {}); req.on('end', r); }); return { done: true }; },
+    ensureReady: async () => ({ duration: 40, width: 640, height: 360, hasAudio: true }), analyze: async () => ({ candidates: [{ start: 0, duration: 15 }, { start: 20, duration: 15 }] }),
+    createJob: ({ candidates }) => { const id = `j${Object.keys(jobs).length}`; jobs[id] = candidates; return id; },
+    getJob: (id) => ({ status: 'done', progress: 100, clips: jobs[id].map(() => ({})) }), purge: async () => {},
+  };
+  const ff = { detectCapabilities: async () => ({ ok: true, version: '6' }), runFfmpeg: async (a) => { fs.mkdirSync(config.dirs.tmp, { recursive: true }); fs.writeFileSync(a[a.length - 1], Buffer.alloc(100)); }, probe: async () => ({ duration: 15 }) };
+  const { createSelfTest } = require('../src/services/selfTest');
+  const missing = createSelfTest({ cloud, ff, config, logger: { info() {}, warn() {} }, transcriber: { status: async () => ({ ready: false, engine: 'none', hint: 'No speech-to-text engine is set up yet.' }) } });
+  const v = missing.start(); let r; do { await new Promise((x) => setTimeout(x, 20)); r = missing.get(v.testId); } while (r.status === 'running');
+  const cap = r.steps.find((x) => /Captions/.test(x.name));
+  assert.equal(cap.status, 'warn'); assert.match(cap.detail, /not set up/);
+  assert.equal(r.ok, true, `the rest of the test still passes: ${JSON.stringify(r.steps.filter((x) => x.status === 'fail'))}`);
+  const ready = createSelfTest({ cloud, ff, config: { ...config, captions: { bundled: true } }, logger: { info() {}, warn() {} }, transcriber: { status: async () => ({ ready: true, engine: 'whisper-cpp' }) } });
+  const v2 = ready.start(); let r2; do { await new Promise((x) => setTimeout(x, 20)); r2 = ready.get(v2.testId); } while (r2.status === 'running');
+  assert.match(r2.steps.find((x) => /Captions/.test(x.name)).detail, /ready: whisper-cpp \(built in\)/);
+});

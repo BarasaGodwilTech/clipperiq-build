@@ -496,6 +496,7 @@ export class ClipGenerator {
         frame: look && look.frame,
         lowerThird: look && look.lowerThird,
         lowerThirds: look && look.lowerThirds,
+        squeeze: look && look.squeeze,
         adjust: look && look.adjust,
         captions: look && look.captions,
       };
@@ -604,6 +605,28 @@ export class ClipGenerator {
   async _cloudUploadVideo(baseUrl, videoBlob, onProgress, signal = null, { noReuse = false } = {}) {
     const base = String(baseUrl || '').replace(/\/+$/, '');
     this._lastUploadReused = false;
+    // Desktop app: the file is already on this computer's disk, so the server just uses it where it is.
+    // No upload, no copy, no waiting, no extra disk space. If anything about that fails, the normal upload below runs.
+    const desk = typeof window !== 'undefined' ? window.clipperiqDesktop : null;
+    if (desk && typeof desk.getPathForFile === 'function') {
+      let diskPath = '';
+      try { diskPath = desk.getPathForFile(videoBlob) || ''; } catch { /* not a file from disk (e.g. a re-created blob) */ }
+      if (diskPath) {
+        try {
+          const lr = await cloudFetch(`${base}/api/cloud/upload/from-path`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: diskPath, fresh: !!noReuse }), signal,
+          });
+          if (lr.ok) {
+            const linked = await lr.json().catch(() => ({}));
+            if (linked && linked.uploadId) {
+              this._lastUploadReused = !!linked.reused;
+              if (onProgress) onProgress({ phase: 'uploading', pct: 100, linked: true });
+              return linked.uploadId;
+            }
+          }
+        } catch (e) { if (e && (e.name === 'AbortError' || e.cancelled)) throw e; /* fall back to the normal upload */ }
+      }
+    }
     // Is this exact video already on the server? Then it is not sent again (a copy with any problem is never reused).
     const fingerprint = await this._fingerprintBlob(videoBlob);
     if (fingerprint && !noReuse) {
@@ -801,6 +824,7 @@ export class ClipGenerator {
         lowerThird: options.lowerThird || undefined,
         adjust: options.adjust || undefined,
         lowerThirds: options.lowerThirds || undefined,
+        squeeze: options.squeeze || undefined,
         captions: options.captions || undefined,
         requestId: options.requestId || undefined,   // the server makes ONE job however often this request arrives
         origin: options.origin || undefined,         // why the job was made (it is written in the job's job.json and the server log)
@@ -990,6 +1014,7 @@ export class ClipGenerator {
       lowerThird: options.look && options.look.lowerThird,
       adjust: options.look && options.look.adjust,
       lowerThirds: options.look && options.look.lowerThirds,
+      squeeze: options.look && options.look.squeeze,
       captions: options.look && options.look.captions,
       requestId: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined,
       origin: 'rerender',

@@ -20,6 +20,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { prepareOverlay, drawtextFilter, OVERLAY_SHOW_SEC, OVERLAY_FADE_SEC } = require('./overlay');
 const { createLowerThirdRenderer } = require('./lowerThird');
+const { createSqueezeRenderer } = require('./squeeze');
 
 const ASPECTS = {
   '9:16': { r: 9 / 16, refW: 1080, refH: 1920 },
@@ -64,7 +65,7 @@ function computeGeometry(src, aspectRatio, frame = null, framing = null) {
  * Pure function: turns a render spec into ffmpeg arguments (+ the temp files it needs).
  * `overlay` is the result of prepareOverlay(); `caps` the detected ffmpeg capabilities.
  */
-function buildPlan(spec, { overlay = null, lowerThird = null, lowerThirds: ltList = null, captions = null, framing = null, adjustLib = null, caps, config, workDir, encoder = 'libx264' }) {
+function buildPlan(spec, { overlay = null, lowerThird = null, lowerThirds: ltList = null, squeeze: sq = null, captions = null, framing = null, adjustLib = null, caps, config, workDir, encoder = 'libx264' }) {
   const { src, start, duration } = spec;
   // Clip adjustments (js/shared/adjust.js): null when nothing is adjusted, so the plan is exactly what it always was.
   const ap = adjustLib && spec.adjust && !adjustLib.isDefaultAdjust(spec.adjust) ? adjustLib.adjustPlan(spec.adjust) : null;
@@ -84,7 +85,7 @@ function buildPlan(spec, { overlay = null, lowerThird = null, lowerThirds: ltLis
   const customOverlay = spec.customOverlay && spec.customOverlay.file ? spec.customOverlay : null;
   // one or several animated lower thirds (each a prepared layer); `lowerThird` is the single-layer form
   const lts = Array.isArray(ltList) && ltList.length ? ltList : (lowerThird ? [lowerThird] : []);
-  const needsFilters = !sameGeometry || wantsOverlay || !!customOverlay || lts.length > 0 || !!captions || !!bgm || originalVolume !== 1 || !!ap;
+  const needsFilters = !sameGeometry || wantsOverlay || !!customOverlay || lts.length > 0 || !!sq || !!captions || !!bgm || originalVolume !== 1 || !!ap;
   const reEncode = !!spec.reEncode || needsFilters || !canCopy;
 
   const args = ['-ss', String(Math.max(0, start)), '-i', spec.inputFile];
@@ -158,6 +159,34 @@ function buildPlan(spec, { overlay = null, lowerThird = null, lowerThirds: ltLis
     vChain.push('setsar=1');
     fc.push(`[${vLabel}]${vChain.join(',')}[vbase]`);
     vLabel = 'vbase';
+  }
+
+  // Squeeze screen: the picture shrinks into a window while a drawn frame (a prepared layer, see squeeze.js) animates around it.
+  // The picture is scaled and moved with expressions of the time (js/shared/squeeze.js squeezeExpr, the same movement the frame
+  // was drawn for), then the frame is laid over it: first the move in, then the held part (looped), then the move out, once for
+  // each showing. Everything after this (the person's overlay, lower thirds, part label, captions) is drawn on top of it.
+  if (sq) {
+    const ex = sq.expr; const f3 = (n) => Number(n).toFixed(3);
+    fc.push(`[${vLabel}]split=2[sqa][sqb]`);
+    fc.push(`[sqb]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill[sqk]`);
+    fc.push(`[sqa]scale=w='${ex.w}':h='${ex.h}':eval=frame:flags=bilinear[sqv]`);
+    fc.push(`[sqk][sqv]overlay=x='${ex.x}':y='${ex.y}':eval=frame:eof_action=pass[sqc]`);
+    let cur = 'sqc';
+    sq.starts.forEach((st, n) => {
+      const parts = [
+        { file: sq.inFile, at: st, pre: [] },
+        { file: sq.holdFile, at: st + sq.inDur, pre: ['-stream_loop', '-1', '-t', f3(sq.hold)] },
+        { file: sq.outFile, at: st + sq.inDur + sq.hold, pre: [] },
+      ];
+      parts.forEach((pt, k) => {
+        args.push(...pt.pre, '-i', pt.file);
+        const qi = nextInput++;
+        fc.push(`[${qi}:v]format=rgba,setpts=PTS+${f3(pt.at)}/TB[sql${n}_${k}]`);
+        fc.push(`[${cur}][sql${n}_${k}]overlay=0:0:eof_action=pass[sqo${n}_${k}]`);
+        cur = `sqo${n}_${k}`;
+      });
+    });
+    vLabel = cur;
   }
 
   // The person's own layer (text, stickers, images drawn in the upload editor): one transparent PNG
@@ -336,6 +365,7 @@ function videoEncoderArgs(name, preset, crf) {
 
 function createRenderer({ ff, config, logger }) {
   const lowerThirds = createLowerThirdRenderer({ ff, config, logger });
+  const squeezeLayers = createSqueezeRenderer({ ff, config, logger });
   // js/shared/framing.js is an ES module shared with the browser; it is loaded once, on first use.
   let framingP = null;
   const loadFraming = () => (framingP || (framingP = import(pathToFileURL(path.join(config.rootDir, 'js', 'shared', 'framing.js')).href)));
@@ -395,6 +425,16 @@ function createRenderer({ ff, config, logger }) {
         warnings.push(`${ltSpecs.length > 1 ? `Lower third ${n + 1}` : 'The lower third'} could not be added to this clip (${String(e.message).slice(0, 120)}).`);
       }
     }
+    // A squeeze screen is an extra like the lower thirds: if its frame cannot be drawn the clip is still made, without it.
+    let squeezePrepared = null;
+    if (spec.squeeze && spec.squeeze.enabled) {
+      try {
+        squeezePrepared = await squeezeLayers.prepare(spec.squeeze, { width: geo.outW, height: geo.outH, clipDuration: expectDur, workDir, partNumber: spec.partNumber, signal });
+      } catch (e) {
+        logger?.warn(`render: squeeze screen failed (${e.message})`);
+        warnings.push(`The squeeze screen could not be added to this clip (${String(e.message).slice(0, 120)}).`);
+      }
+    }
     let overlay = null;
     if (spec.overlay && spec.overlay.format && spec.overlay.format !== 'none') {
       // Overlay rendering is a nice-to-have, not something that should ever sink an entire
@@ -444,7 +484,7 @@ function createRenderer({ ff, config, logger }) {
       const encoder = await resolveEncoder(caps);
       const timeoutMs = config.ffmpeg.renderTimeoutMin * 60 * 1000;
       const attempt = async (enc) => {
-        const plan = buildPlan(planSpec, { overlay, lowerThirds: preparedLts, captions, framing, adjustLib, caps, config, encoder: enc });
+        const plan = buildPlan(planSpec, { overlay, lowerThirds: preparedLts, squeeze: squeezePrepared, captions, framing, adjustLib, caps, config, encoder: enc });
         logger?.debug(`render: ${plan.mode} ${spec.start}s+${spec.duration}s -> ${path.basename(spec.outFile)} (${enc})`);
         await fs.promises.unlink(spec.outFile).catch(() => {});
         await ff.runFfmpeg(plan.args, {
@@ -552,6 +592,7 @@ function createRenderer({ ff, config, logger }) {
     let n = 0;
     const names = new Set(String(message || '').match(/\blt_[0-9a-f]{8,}\.mov\b/g) || []);
     for (const name of names) n += await lowerThirds.purge(path.join(config.dirs.tmp, name));
+    for (const name of new Set(String(message || '').match(/\bsq_[0-9a-f]{8,}_(?:in|hold|out)\.mov\b/g) || [])) n += await squeezeLayers.purge(path.join(config.dirs.tmp, name));
     return n;
   }
 

@@ -11,7 +11,8 @@ import { normalizeAdjust, defaultAdjust, isDefaultAdjust, effectiveFrame, previe
 import {
   normalizeLowerThird, normalizeLowerThirds, defaultLowerThird, drawLowerThird, measureLowerThird, lowerThirdTimeline, autoY, resolveLowerThird, lowerThirdWindows, timingPatch, MAX_LOWER_THIRDS,
 } from '../shared/lowerThird.js';
-import { mountFramingPanel, mountLowerThirdPanel, ensureLowerThirdFonts } from './lookPanels.js';
+import { mountFramingPanel, mountLowerThirdPanel, mountSqueezePanel, ensureLowerThirdFonts } from './lookPanels.js';
+import { defaultSqueeze, normalizeSqueeze, resolveSqueeze, squeezeTimeline, drawSqueeze } from '../shared/squeeze.js';
 import { mountAdjustPanel } from './adjustPanel.js';
 import { mountCaptionsPanel } from './captionsPanel.js';
 import { defaultCaptionStyle, normalizeCaptionStyle, normalizeCaptions, normalizeCues, pagesOf, pageAt, drawCaptionPage, ensureCaptionFonts } from '../shared/captions.js';
@@ -98,6 +99,8 @@ export class DesignerPad {
     this.ltSel = 0;
     this._ltScrub = null;                 // a moment of the clip (s) the preview shows ALL lower thirds at, or null (the edited one in its showing pose)
     this.adj = defaultAdjust();           // clip adjustments: speed, pitch, flip, scale, colour, reverb (js/shared/adjust.js)
+    this.sq = defaultSqueeze();           // squeeze screen: the video shrinks into a branded frame (js/shared/squeeze.js)
+    this._sqImgs = {}; this._sqImgKey = ''; this._sqAnimating = false; this._sqRectNow = null; this._sqStore = {};
     this.cap = { enabled: false, template: '', style: defaultCaptionStyle() }; // auto captions: the look (the words are capCues)
     this.capCues = [];                    // the caption words on the SOURCE video's timeline: [{ s, e, text, words? }]
     this._capKey = ''; this._capPages = [];
@@ -125,6 +128,7 @@ export class DesignerPad {
             <canvas class="ed-bg" id="${n}Bg" width="64" height="114"></canvas>
             <video id="${n}Video" muted playsinline preload="auto"></video>
             <img id="${n}Img" alt="" draggable="false">
+            <canvas class="ed-sq" id="${n}SQ"></canvas>
             <canvas class="ed-lt" id="${n}LT"></canvas>
             <canvas class="ed-cap" id="${n}Cap"></canvas>
             <div class="ed-lt-handle" id="${n}LTHandle" title="Drag to move the lower third"></div>
@@ -158,6 +162,7 @@ export class DesignerPad {
         <div class="ed-right">
           <div id="${n}FrRoot"></div>
           <div id="${n}AdRoot"></div>
+          <div id="${n}SqRoot"></div>
           <div id="${n}LtRoot"></div>
           <div id="${n}CpRoot"></div>
           <div class="ed-sec-title" style="margin-top:12px">Custom overlays</div>
@@ -188,9 +193,9 @@ export class DesignerPad {
     this._bindStage();
     this._bindPlayer();
     this._bindControls();
-    this._panels = [mountFramingPanel(this, this.$('FrRoot')), mountAdjustPanel(this, this.$('AdRoot')), mountLowerThirdPanel(this, this.$('LtRoot')), mountCaptionsPanel(this, this.$('CpRoot'))];
+    this._panels = [mountFramingPanel(this, this.$('FrRoot')), mountAdjustPanel(this, this.$('AdRoot')), mountSqueezePanel(this, this.$('SqRoot')), mountLowerThirdPanel(this, this.$('LtRoot')), mountCaptionsPanel(this, this.$('CpRoot'))];
     this._syncPanels();
-    ensureLowerThirdFonts().then(() => this._drawLT());
+    ensureLowerThirdFonts().then(() => { this._drawLT(); this._drawSQ(); });
     ensureCaptionFonts().then(() => this._drawCaps());
     this.refreshTemplates();
     this.applyAspect();
@@ -466,7 +471,15 @@ export class DesignerPad {
     const st = previewStyle(this.adj);
     for (const id of ['Video', 'Img']) {
       const el = this.$(id); if (!el) continue;
-      el.style.transform = st.transform; el.style.filter = st.filter;
+      el.style.filter = st.filter;
+      const q = this._sqRectNow; const stage = this.$('Stage');
+      if (q && stage && stage.clientWidth) {
+        // squeezed: the picture (flipped about its own centre) is scaled and moved into the squeeze window, measured from the stage's corner
+        const W = stage.clientWidth; const H = stage.clientHeight; const x = parseFloat(el.style.left) || 0; const y = parseFloat(el.style.top) || 0;
+        const w = parseFloat(el.style.width) || W; const h = parseFloat(el.style.height) || H; const cx = x + w / 2; const cy = y + h / 2;
+        el.style.transformOrigin = `${-x}px ${-y}px`;
+        el.style.transform = `translate(${q.x}px,${q.y}px) scale(${q.w / W},${q.h / H}) translate(${cx}px,${cy}px) scale(${this.adj.flipH ? -1 : 1},${this.adj.flipV ? -1 : 1}) translate(${-cx}px,${-cy}px)`;
+      } else { el.style.transformOrigin = ''; el.style.transform = st.transform; }
     }
     const bg = this.$('Bg'); // the blurred background has its own CSS (blur / scale): the adjustments are added to it
     if (bg) { bg.style.filter = `blur(14px) brightness(.8) ${st.filter}`.trim(); bg.style.transform = `scale(1.25) ${st.transform}`.trim(); }
@@ -521,9 +534,10 @@ export class DesignerPad {
     const lowerThirds = lts.length ? lts : null; // all of them
     const adjust = isDefaultAdjust(this.adj) ? null : { ...this.adj };
     const captions = this.cap.enabled && this.capCues.length ? { enabled: true, template: this.cap.template, style: { ...this.cap.style } } : null;
+    const squeeze = this.sq.enabled ? JSON.parse(JSON.stringify(this.sq)) : null;
     // frameAuto: the framing was chosen by the aspect-ratio rules, not by the person (so it alone never asks for cloud processing)
     const frameAuto = !!(frame && this._autoFrameKey && this._frameKey(this.frame) === this._autoFrameKey);
-    return frame || lowerThird || adjust || captions ? { frame, lowerThird, lowerThirds, adjust, captions, ...(frameAuto ? { frameAuto: true } : {}) } : null;
+    return frame || lowerThird || adjust || captions || squeeze ? { frame, lowerThird, lowerThirds, squeeze, adjust, captions, ...(frameAuto ? { frameAuto: true } : {}) } : null;
   }
 
   /** Puts a stored look back ({ frame, lowerThird, adjust } or null). */
@@ -531,9 +545,10 @@ export class DesignerPad {
     this.frame = normalizeFrame(look && look.frame);
     this.lts = normalizeLowerThirds(look && (look.lowerThirds || look.lowerThird)); this.ltSel = 0; this._ltScrub = null;
     this.adj = normalizeAdjust(look && look.adjust);
+    this.sq = normalizeSqueeze(look && look.squeeze ? { ...look.squeeze, enabled: true } : { enabled: false });
     this.cap = look && look.captions ? normalizeCaptions(look.captions) : { enabled: false, template: '', style: this.cap.style };
     this._autoFrameKey = null;
-    this._layoutMedia(); this._applyAdjustPreview(); this._drawLT(); this._drawCaps(); this._syncPanels();
+    this._layoutMedia(); this._applyAdjustPreview(); this._drawLT(); this._drawCaps(); this._drawSQ(); this._syncPanels();
   }
 
   _media() {
@@ -571,6 +586,7 @@ export class DesignerPad {
     if (showBg) { bg.width = 64; bg.height = Math.max(2, Math.round(64 * H / W)); this._drawBg(); }
     this._applyAdjustPreview();
     this._drawCaps();
+    this._drawSQ();
   }
 
   /** The blurred copy behind a "fit" video: a tiny canvas of the current picture, blurred and enlarged by CSS. */
@@ -618,6 +634,70 @@ export class DesignerPad {
 
   /** Shows the preview the way the final part will look (its closing text, or nothing if it is set to hide). */
   setPreviewLast(on) { this.previewLast = !!on; this.setLowerThird({}); }
+
+  // ── squeeze screen ──────────────────────────────────────────────────────────────────
+  /** Changes the squeeze screen: any of its fields (see js/shared/squeeze.js). */
+  setSqueeze(patch, { commit = true } = {}) {
+    this.sq = normalizeSqueeze({ ...this.sq, ...patch });
+    this._sqLoadImages(); this._drawSQ(); this._syncPanels();
+    if (commit) this._commitSoon();
+    if (patch && ['enabled', 'template', 'transition', 'speed', 'start', 'hold', 'repeat', 'loop', 'scale', 'mirror'].some((k) => k in patch)) {
+      clearTimeout(this._sqAutoT); this._sqAutoT = setTimeout(() => { if (this.$('Stage') && this.sq.enabled) this.previewSqueeze(); }, 450);
+    }
+  }
+
+  _sqLoadImages() {
+    const key = JSON.stringify(['logo', 'product', 'qr'].map((k) => { const u = this.sq.images[k]; return u ? u.length + u.slice(-20) : ''; }));
+    if (key === this._sqImgKey) return;
+    this._sqImgKey = key; this._sqImgs = {};
+    for (const slot of ['logo', 'product', 'qr']) {
+      const url = this.sq.images[slot]; if (!url) continue;
+      const im = new Image(); im.onload = () => this._drawSQ(); im.src = url; this._sqImgs[slot] = im;
+    }
+  }
+
+  /** The squeeze screen as the first clip will have it ({part}/{next} filled in, "near the end" worked out). */
+  _sqSpec() {
+    let part = 1; let len = 0;
+    try { part = this._getPart ? Number(this._getPart()) || 1 : 1; len = this._getClipLen ? Number(this._getClipLen()) || 0 : 0; } catch { /* part 1 */ }
+    return resolveSqueeze(this.sq, { part, clipDuration: len });
+  }
+
+  /** Paints the squeeze frame on its canvas and shrinks the picture into the window: at time t, or (by default) as it looks while held. */
+  _drawSQ(t = null) {
+    const cv = this.$('SQ'); const stage = this.$('Stage');
+    if (!cv || !stage) return;
+    const W = stage.clientWidth; const H = stage.clientHeight;
+    if (!W || !H) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const pw = Math.round(W * dpr); const ph = Math.round(H * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, pw, ph);
+    if (!this.sq.enabled) { if (this._sqRectNow) { this._sqRectNow = null; this._applyAdjustPreview(); } return; }
+    this._sqLoadImages();
+    const spec = this._sqSpec(); const tl = squeezeTimeline(spec);
+    const at = t != null ? t : spec.start + tl.inDur + Math.min(1.2, spec.hold / 2);
+    ctx.save(); ctx.scale(dpr, dpr);
+    const r = drawSqueeze(ctx, W, H, spec, at, { images: this._sqImgs, demo: true }); // (an empty picture slot shows a sample, in the preview only)
+    ctx.restore();
+    this._sqRectNow = r.drawn ? r.rect : null;
+    this._applyAdjustPreview();
+  }
+
+  /** Plays the squeeze's move in, hold and move out once on the preview. */
+  previewSqueeze() {
+    if (!this.sq.enabled) { this.notify('info', 'Turn the squeeze screen on first.'); return; }
+    cancelAnimationFrame(this._sqRaf);
+    const spec = this._sqSpec(); const tl = squeezeTimeline(spec);
+    const t0 = Math.max(0, spec.start - 0.35); const end = spec.start + tl.total + 0.5; const began = performance.now();
+    this._sqAnimating = true;
+    const step = (now) => {
+      const t = t0 + (now - began) / 1000;
+      if (t >= end || !this.$('Stage')) { this._sqAnimating = false; this._drawSQ(); return; }
+      this._drawSQ(t); this._sqRaf = requestAnimationFrame(step);
+    };
+    this._sqRaf = requestAnimationFrame(step);
+  }
 
   /** Any lower third of the clip as the first clip will have it. */
   _ltResolved(spec) {
@@ -1081,7 +1161,19 @@ export class DesignerPad {
 
   // ── history ─────────────────────────────────────────────────────────────────────────
   // One undo step covers everything the pad edits: the items, the framing and the lower third.
-  _snapshot() { return JSON.stringify({ items: this.items.map((i) => { const { img, ...rest } = i; return rest; }), frame: this.frame, lts: this.lts, ltSel: this.ltSel, adj: this.adj, cap: this.cap }); }
+  _snapshot() { return JSON.stringify({ items: this.items.map((i) => { const { img, ...rest } = i; return rest; }), frame: this.frame, lts: this.lts, ltSel: this.ltSel, adj: this.adj, cap: this.cap, sq: this._sqForSnapshot() }); }
+
+  _sqForSnapshot() {
+    const images = {};
+    for (const k of ['logo', 'product', 'qr']) { const u = this.sq.images[k]; if (!u) { images[k] = ''; continue; } let h = 5381; for (let i = 0; i < u.length; i += 7) h = ((h << 5) + h + u.charCodeAt(i)) | 0; const ref = `ref:${u.length}:${(h >>> 0).toString(16)}`; this._sqStore[ref] = u; images[k] = ref; }
+    return { ...this.sq, images };
+  }
+
+  _sqFromSnapshot(s) {
+    if (!s) return normalizeSqueeze({ enabled: false });
+    const images = {}; for (const k of ['logo', 'product', 'qr']) { const v = s.images && s.images[k]; images[k] = v && v.startsWith('ref:') ? (this._sqStore[v] || '') : (v || ''); }
+    return normalizeSqueeze({ ...s, images });
+  }
 
   /** Records the current state as an undo step (call after a finished edit). */
   _commit() {
@@ -1110,7 +1202,7 @@ export class DesignerPad {
   _restore(snap) {
     const parsed = JSON.parse(snap);
     const list = Array.isArray(parsed) ? parsed : (parsed.items || []); // (older snapshots were just the items)
-    if (!Array.isArray(parsed)) { this.frame = normalizeFrame(parsed.frame); this.lts = normalizeLowerThirds(parsed.lts || parsed.lt); this.ltSel = Math.min(Math.max(0, Number(parsed.ltSel) || 0), this.lts.length - 1); this.adj = normalizeAdjust(parsed.adj); if (parsed.cap) this.cap = normalizeCaptions(parsed.cap); this._layoutMedia(); this._drawLT(); this._drawCaps(); this._syncPanels(); }
+    if (!Array.isArray(parsed)) { this.frame = normalizeFrame(parsed.frame); this.lts = normalizeLowerThirds(parsed.lts || parsed.lt); this.ltSel = Math.min(Math.max(0, Number(parsed.ltSel) || 0), this.lts.length - 1); this.adj = normalizeAdjust(parsed.adj); if (parsed.cap) this.cap = normalizeCaptions(parsed.cap); this.sq = this._sqFromSnapshot(parsed.sq); this._layoutMedia(); this._drawLT(); this._drawCaps(); this._drawSQ(); this._syncPanels(); }
     this.items = list.map((i) => this._hydrate(i));
     if (!this.items.some((i) => i.id === this.selected)) this.selected = null;
     this.render(); this._renderProps(); this._syncHistBtns();
@@ -1141,6 +1233,7 @@ export class DesignerPad {
       lowerThird: { ...this.lts[0] },                    // (the first one, for older readers)
       lowerThirds: this.lts.map((x) => ({ ...x })),
       adjust: { ...this.adj },
+      squeeze: JSON.parse(JSON.stringify(this.sq)),
       captions: { ...this.cap, style: { ...this.cap.style } },
     };
   }
@@ -1152,9 +1245,10 @@ export class DesignerPad {
     this.frame = normalizeFrame(data && data.frame);
     this.lts = normalizeLowerThirds(data && (data.lowerThirds || data.lowerThird)); this.ltSel = 0; this._ltScrub = null;
     this.adj = normalizeAdjust(data && data.adjust);
+    this.sq = normalizeSqueeze(data && data.squeeze);
     if (data && data.captions) this.cap = normalizeCaptions(data.captions);
     this._autoFrameKey = null;
-    this._layoutMedia(); this._drawLT(); this._drawCaps(); this._syncPanels();
+    this._layoutMedia(); this._drawLT(); this._drawCaps(); this._drawSQ(); this._syncPanels();
     this.selected = null;
     this.render(); this._renderProps();
     if (resetHistory) { this._hist = [this._snapshot()]; this._histIdx = 0; this._syncHistBtns(); }

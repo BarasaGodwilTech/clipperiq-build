@@ -13,6 +13,7 @@ const os = require('os');
 const path = require('path');
 
 const storageLocation = require('./services/storageLocation');
+const { findBundledWhisper } = require('./services/bundledEngines');
 
 const SERVER_DIR = path.resolve(__dirname, '..');
 const ROOT_DIR = path.resolve(SERVER_DIR, '..');
@@ -98,6 +99,10 @@ function load(env = process.env) {
     },
     dbFile: path.join(dataDir, 'db.json'),
 
+    // Set by the desktop app (never by hand). Turns on local-file linking and locks the server to the app's own window:
+    // every request must carry the secret that only that window has, so a web page open in a browser cannot use the server.
+    desktop: { enabled: get('CLIPPERIQ_DESKTOP', '') === '1', token: get('CLIPPERIQ_TOKEN', '') },
+
     limits: {
       maxUploadBytes: Math.floor(num('MAX_UPLOAD_GB', 8, { min: 0.1, max: 200 }) * 1024 ** 3),
       chunkBytes: 8 * 1024 * 1024,
@@ -120,7 +125,9 @@ function load(env = process.env) {
       // Normalise the background-music track once per job instead of again for every clip
       // (loudness normalisation is one of the slowest filters). Set BGM_PRENORMALIZE=0 to go back.
       bgmPrenormalize: get('BGM_PRENORMALIZE', '1') !== '0',
-      maxConcurrentRenders: num('MAX_CONCURRENT_RENDERS', 1, { min: 1, max: Math.max(1, os.cpus().length) }),
+      // Movies being processed at the same time. All of their clips share CLIP_CONCURRENCY slots (services/slots.js), so a second movie
+      // can be started while the first is running without the two slowing each other down.
+      maxConcurrentRenders: num('MAX_CONCURRENT_RENDERS', 3, { min: 1, max: Math.max(3, os.cpus().length) }),
       // How many clips of ONE job render at the same time. Encoding mostly runs on a few threads
       // at a time (decode, crop/scale, audio loudness), so on a multi-core machine rendering a
       // couple of clips together keeps more cores busy. Auto: 1 on <4 cores, 2 on 4-11, 3 on 12+.
@@ -133,12 +140,15 @@ function load(env = process.env) {
 
     // Auto captions: turning speech into text. "auto" uses the first engine that is set up: faster-whisper (Python,
     // `pip install faster-whisper`), whisper.cpp (a downloaded program + model file), or the OpenAI API (needs an API key).
+    // The installer carries its own speech-to-text engine (server/vendor/whisper: the whisper.cpp program and a model), so captions
+    // work as soon as it is installed, with no Python and nothing to download. WHISPER_CPP_BIN / WHISPER_CPP_MODEL still win.
     captions: {
+      bundled: !!findBundledWhisper(path.join(SERVER_DIR, 'vendor', 'whisper')),
       engine: String(get('CAPTION_ENGINE', 'auto')).toLowerCase(),
       model: get('WHISPER_MODEL', 'small'),               // faster-whisper: tiny, base, small, medium, large-v3 ...
       python: get('WHISPER_PYTHON', ''),                  // python command that has faster-whisper installed (default: python / python3)
-      cppBin: get('WHISPER_CPP_BIN', ''),                 // whisper.cpp program (whisper-cli / main)
-      cppModel: get('WHISPER_CPP_MODEL', ''),             // whisper.cpp model file (ggml-small.bin ...)
+      cppBin: get('WHISPER_CPP_BIN', (findBundledWhisper(path.join(SERVER_DIR, 'vendor', 'whisper')) || {}).bin || ''),       // whisper.cpp program (whisper-cli / main)
+      cppModel: get('WHISPER_CPP_MODEL', (findBundledWhisper(path.join(SERVER_DIR, 'vendor', 'whisper')) || {}).model || ''), // whisper.cpp model file (ggml-small.bin ...)
       openaiKey: get('OPENAI_API_KEY', ''),
       openaiBase: get('OPENAI_BASE_URL', 'https://api.openai.com').replace(/\/+$/, ''),
       openaiModel: get('OPENAI_TRANSCRIBE_MODEL', 'whisper-1'),

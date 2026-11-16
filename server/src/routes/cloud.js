@@ -35,6 +35,12 @@ function createCloudRouter({ cloud, ff, config, bgmStore, overlayStore }) {
   // Is this exact video already here? { fingerprint, size } -> { found, uploadId, duration }
   router.post('/upload/find', json, wrap(async (req, res) => { res.json(await cloud.findUpload(req.body || {})); }));
 
+  // Desktop app only: use the video where it is on this computer's disk (no upload, no copy).
+  router.post('/upload/from-path', json, wrap(async (req, res) => {
+    if (!(config.desktop && config.desktop.enabled)) throw new HttpError(404, 'Not available');
+    res.json(await cloud.linkUpload(req.body || {}));
+  }));
+
   // No body parser here: the request stream is written straight to disk at its byte offset.
   router.put('/upload', wrap(async (req, res) => {
     const uploadId = String(req.query.uploadId || '');
@@ -84,7 +90,8 @@ function createCloudRouter({ cloud, ff, config, bgmStore, overlayStore }) {
     res.json(await overlayStore.fromUpload(req.body));
   }));
 
-  router.post('/jobs', json, wrap(async (req, res) => {
+  // (a squeeze screen can carry up to three small pictures, so a job request may be larger than the other requests)
+  router.post('/jobs', express.json({ limit: '6mb' }), wrap(async (req, res) => {
     const baseUrl = externalBaseUrl(req, config);
     const jobId = cloud.createJob(req.body || {}, baseUrl);
     res.json({ jobId });

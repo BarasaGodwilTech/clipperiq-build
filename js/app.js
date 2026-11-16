@@ -1040,6 +1040,20 @@ class ClipperIQApp {
   }
 }
 
+// Desktop app: show how far the work is on the Windows taskbar button, so it can be followed with the window minimised.
+if (window.clipperiqDesktop && window.clipperiqDesktop.setProgress) {
+  const running = new Map();
+  window.addEventListener('clip:job-progress', (e) => {
+    const d = e.detail || {};
+    if (!d.jobId) return;
+    if (['done', 'cancelled', 'error'].includes(d.status)) running.delete(d.jobId);
+    else running.set(d.jobId, Math.max(0, Math.min(100, Number(d.serverPct) || 0)) / 100);
+    let f = -1; // -1 hides the bar
+    if (running.size) f = [...running.values()].reduce((x, y) => x + y, 0) / running.size;
+    try { window.clipperiqDesktop.setProgress(f); } catch { /* not important */ }
+  });
+}
+
 const app = new ClipperIQApp();
 app.init().catch(err => {
   console.error('[ClipperIQ] Init failed:', err);

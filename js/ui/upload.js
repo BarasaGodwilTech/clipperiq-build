@@ -14,7 +14,10 @@ function formatBytes(b) {
 export const uploadUI = {
   currentFile: null,
   currentUploadId: null,
-  isProcessing: false,
+  isProcessing: false,   // true while a run's progress window is in front (a run sent to the background does not count)
+  runs: new Map(),       // every movie being processed from this page: several can run at once
+  _fg: null,             // the run whose progress window is showing
+  _runSeq: 0,
   _seriesIndex: null,
   _titleDebounce: null,
 
@@ -58,17 +61,29 @@ export const uploadUI = {
     const seriesCb = document.getElementById('seriesMode');
     if (seriesCb) seriesCb.addEventListener('change', () => this._recalcNextPartFromTitle());
 
+    if (!this._notifyBound) {
+      this._notifyBound = true;
+      window.addEventListener('clip:notify', (e) => {
+        const d = e.detail || {};
+        if (d.type === 'error') notify.error(d.message); else if (d.type === 'info') (notify.info || notify.success || notify.warn).call(notify, d.message); else notify.warn(d.message, 14000);
+      });
+    }
     this._buildSeriesIndex().catch(()=>{});
     try { uploadPage.init(); } catch (e) { console.warn('[Upload] page enhancements failed:', e); }
   },
 
   // Allow processing to continue while modal is hidden
+  // The window goes away, the work carries on, and the page is free for the next movie.
   runInBackground() {
     const modal = document.getElementById('procModal');
     if (modal) modal.classList.remove('show');
     window.app?._unlockBodyScroll?.();
+    this._fg = null; this.isProcessing = false;
+    try { uploadPage.refresh(); } catch { /* ignore */ }
     const badge = document.getElementById('bgProcBadge');
     if (badge) badge.style.display = 'inline-flex';
+    try { window.processingStatus?.refreshBadge?.(); } catch { /* ignore */ }
+    if (this.runs.size) { try { notify.info('Running in the background. You can choose the next movie now.'); } catch { /* ignore */ } }
   },
 
   async cancelOrClose() {
@@ -81,7 +96,7 @@ export const uploadUI = {
       intent: 'danger',
     });
     if (!ok) return;
-    const id = this._activeUploadId;
+    const id = this._fg ? this._fg.uploadId : this._activeUploadId;
     if (id != null) { try { await clipGenerator.cancelUpload(id); } catch (e) { console.warn('[Upload] stop failed:', e); } }
     const modal = document.getElementById('procModal');
     if (modal) modal.classList.remove('show');
@@ -91,14 +106,20 @@ export const uploadUI = {
   },
 
   reopenModal() {
+    // With several movies running, the badge opens the list of them (each can be opened or stopped there).
+    if (this.runs.size > 1 && window.processingStatus?.openActive) { window.processingStatus.openActive(); return; }
+    const run = this._fg || [...this.runs.values()].pop();
+    if (run) { this._fg = run; this.isProcessing = true; }
     const modal = document.getElementById('procModal');
     if (modal) modal.classList.add('show');
     window.app?._lockBodyScroll?.();
+    if (run) { this.setModalProgress(run.pctMax, run.label || 'Working…', true); }
     const badge = document.getElementById('bgProcBadge');
     if (badge) badge.style.display = 'none';
   },
 
   handleFile(file) {
+    if ([...this.runs.values()].some((r) => !r.optionsReady)) { notify.warn('The movie that was just started is still being handed over (a few seconds). Choose the next one in a moment.'); return; }
     this.currentFile = file;
     // The file card is filled with textContent (a file name can never inject markup); the drop zone itself stays intact.
     try { uploadPage.setFile(file); } catch (e) { console.warn('[Upload] file card failed:', e); }
@@ -129,17 +150,20 @@ export const uploadUI = {
     }
 
     this.isProcessing = true;
+    const file = this.currentFile; // (this run keeps ITS movie even if another one is chosen meanwhile)
+    const run = { key: ++this._runSeq, name: file.name || 'video', pctMax: 0, stageIdx: 0, stageClock: {}, lengthNote: '', cloudSteps: false, label: 'Starting…', uploadId: null, optionsReady: false, onSaved: null };
+    this.runs.set(run.key, run); this._fg = run;
     try { uploadPage.refresh(); } catch {}
-    this.showModal();
+    this.showModal(run);
     const badge = document.getElementById('bgProcBadge');
     if (badge) badge.style.display = 'none';
 
     let cloudProcessing = false;
     try {
       cloudProcessing = document.getElementById('cloudProcessing')?.checked || false;
-      this._cloudSteps = cloudProcessing;
-      this.updateStepsList(this._stepNames(), 0);
-      this.setModalStep(cloudProcessing ? 'Preparing cloud processing...' : 'Saving video to storage...', 2);
+      run.cloudSteps = cloudProcessing;
+      this.updateStepsList(this._stepNames(run), 0);
+      this.setModalStep(cloudProcessing ? 'Preparing cloud processing...' : 'Saving video to storage...', 2, run);
 
       // Cloud processing has no local recording canvas to show, so give it an equivalent
       // live preview instead: as each clip finishes rendering on the backend, show it here.
@@ -147,20 +171,16 @@ export const uploadUI = {
       if (cloudProcessing) {
         // Only show clips from THIS upload: a job left over from an earlier session can resume in
         // the background and save its own clips, which must not appear in this window.
-        this._onClipSavedForPreview = (e) => {
+        run.onSaved = (e) => {
           const c = e.detail;
-          if (c && this._activeUploadId != null && c.uploadId === this._activeUploadId) this._showLivePreview(c);
+          if (c && run.uploadId != null && c.uploadId === run.uploadId && run === this._fg) this._showLivePreview(c);
         };
-        this._onClipNotify = (e) => {
-          const d = e.detail || {};
-          if (d.type === 'error') notify.error(d.message); else if (d.type === 'info') (notify.info || notify.success || notify.warn).call(notify, d.message); else notify.warn(d.message, 14000);
-        };
-        window.addEventListener('clip:saved', this._onClipSavedForPreview);
-        window.addEventListener('clip:notify', this._onClipNotify);
+        window.addEventListener('clip:saved', run.onSaved);
       }
       const upload = cloudProcessing
-        ? await videoStore.saveUploadMetaOnly(this.currentFile)
-        : await videoStore.saveUpload(this.currentFile);
+        ? await videoStore.saveUploadMetaOnly(file)
+        : await videoStore.saveUpload(file);
+      run.uploadId = upload.id;
       this._activeUploadId = upload.id;
       this.currentUploadId = upload.id;
 
@@ -175,8 +195,8 @@ export const uploadUI = {
         }
       } catch {}
 
-      if (cloudProcessing) this.setModalStep('Uploading to the ClipperIQ server...', 5);
-      else this.setModalStep('Loading FFmpeg (first load may take 30s)...', 5);
+      if (cloudProcessing) this.setModalStep('Uploading to the ClipperIQ server...', 5, run);
+      else this.setModalStep('Loading FFmpeg (first load may take 30s)...', 5, run);
 
       const targetDuration = parseInt(document.getElementById('clipDuration')?.value || '30');
       const maxClips = parseInt(document.getElementById('maxClips')?.value || '6');
@@ -216,7 +236,7 @@ export const uploadUI = {
       let editOpts = { rangeStart: 0, rangeEnd: 0, customOverlayBlob: null, design: null, look: null, preUploadId: null };
       try {
         editOpts = await editorUI.getGenerateOptions((p) => {
-          if (p && p.phase === 'uploading') this._onProgress(p, { cloudProcessing });
+          if (p && p.phase === 'uploading') this._onProgress(p, { cloudProcessing }, run);
         });
       } catch (e) { console.warn('[Upload] editor options failed, using defaults:', e); }
 
@@ -228,40 +248,47 @@ export const uploadUI = {
         editOpts = { ...editOpts, look: null };
       }
 
+      run.optionsReady = true; // everything this run needs from the page has been read: the page may be used for the next movie
       await clipGenerator.processUpload(
         upload.id,
-        (progress) => this._onProgress(progress, { seriesMode, seriesStartPart, cloudProcessing }),
-        { targetDuration, maxClips, reEncode, speedProfile, seriesMode, seriesStartPart, endsSeries, overlayFormat, aspectRatio, bgm, originalVolume, cloudProcessing, videoBlob: cloudProcessing ? this.currentFile : null, ...editOpts }
+        (progress) => this._onProgress(progress, { seriesMode, seriesStartPart, cloudProcessing }, run),
+        { targetDuration, maxClips, reEncode, speedProfile, seriesMode, seriesStartPart, endsSeries, overlayFormat, aspectRatio, bgm, originalVolume, cloudProcessing, videoBlob: cloudProcessing ? file : null, ...editOpts }
       );
 
-      this.hideModal();
-      const b = document.getElementById('bgProcBadge'); if (b) b.style.display = 'none';
-      notify.success('Clips generated successfully!');
-      window.app?.navigate('clips');
+      if (run === this._fg) {
+        this.hideModal();
+        const b = document.getElementById('bgProcBadge'); if (b) b.style.display = 'none';
+        notify.success('Clips generated successfully!');
+        window.app?.navigate('clips');
+      } else {
+        // it finished while another movie was being set up: say so without pulling the person away from what they are doing
+        notify.success(`${run.name}: clips are ready. Open Generated Clips to see them.`);
+        try { await window.app?.refreshDashboardSoon?.(); } catch { /* ignore */ }
+      }
     } catch (err) {
       if (err && err.cancelled) { // the person stopped it: that is not a failure
-        this.hideModal();
-        const bg = document.getElementById('bgProcBadge'); if (bg) bg.style.display = 'none';
+        if (run === this._fg) { this.hideModal(); const bg = document.getElementById('bgProcBadge'); if (bg) bg.style.display = 'none'; }
         notify.info('Stopped. Clips that were already finished are kept; resume any time from Recent Uploads on the dashboard.');
         try { await window.app?.refreshDashboardSoon?.(); } catch { /* ignore */ }
         return;
       }
       console.error('[Upload] Processing failed:', err);
-      this.hideModal();
-      try { if (this._activeUploadId != null && !(err && err.network)) await clipGenerator.markUploadFailed(this._activeUploadId, err); } catch {}
+      if (run === this._fg) this.hideModal();
+      try { if (run.uploadId != null && !(err && err.network)) await clipGenerator.markUploadFailed(run.uploadId, err); } catch {}
       const reason = String((err && err.message) || '').slice(0, 220);
-      notify.error(reason ? `Processing failed: ${reason}. Open Recent Uploads on the dashboard to retry; finished clips are kept.` : 'Processing failed. Open Recent Uploads on the dashboard to retry.');
+      notify.error(reason ? `${run === this._fg ? '' : run.name + ': '}Processing failed: ${reason}. Open Recent Uploads on the dashboard to retry; finished clips are kept.` : 'Processing failed. Open Recent Uploads on the dashboard to retry.');
     } finally {
-      this.isProcessing = false;
+      this.runs.delete(run.key);
+      if (this._fg === run) { this._fg = null; this.isProcessing = false; }
+      if (!this.runs.size) this._activeUploadId = null;
       try { uploadPage.refresh(); } catch {}
-      this._activeUploadId = null;
-      this._cloudSteps = false;
-      this._lengthNote = '';
-      if (this._onClipSavedForPreview) { window.removeEventListener('clip:saved', this._onClipSavedForPreview); this._onClipSavedForPreview = null; }
-      if (this._onClipNotify) { window.removeEventListener('clip:notify', this._onClipNotify); this._onClipNotify = null; }
-      if (this._previewObjUrl) { try { URL.revokeObjectURL(this._previewObjUrl); } catch {} this._previewObjUrl = null; }
+      if (run.onSaved) { window.removeEventListener('clip:saved', run.onSaved); run.onSaved = null; }
+      try { window.processingStatus?.refreshBadge?.(); } catch { /* ignore */ }
+      if (this._fg == null && !this.runs.size) {
+        if (this._previewObjUrl) { try { URL.revokeObjectURL(this._previewObjUrl); } catch {} this._previewObjUrl = null; }
       const preview = document.getElementById('procLivePreview');
       if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+      }
     }
   },
 
@@ -302,7 +329,8 @@ export const uploadUI = {
     return `about ${Math.floor(m / 60)} h ${m % 60} min left`;
   },
 
-  _onProgress(progress, ctx = {}) {
+  _onProgress(progress, ctx = {}, run = this._fg) {
+    if (!run) return;
     const ph = progress.phase;
     const clamp = (n) => Math.max(0, Math.min(100, Number(n) || 0));
     let stage = null; let frac = 0; let label = '';
@@ -316,7 +344,7 @@ export const uploadUI = {
       label = this._STAGES.analyzing.label;
     } else if (ph === 'series-skip') { stage = 'analyzing'; frac = 0.3; label = 'Planning the parts'; }
     else if (ph === 'series-plan') {
-      stage = 'analyzing'; frac = 1; this._lengthNote = `video ${fmtLen(progress.duration)}`;
+      stage = 'analyzing'; frac = 1; run.lengthNote = `video ${fmtLen(progress.duration)}`;
       label = `Video is ${fmtLen(progress.duration)}, so ${progress.parts} part${progress.parts === 1 ? '' : 's'}`;
     } else if (ph === 'generating' || ph === 'extracting') {
       stage = 'generating'; frac = clamp(progress.pct) / 100;
@@ -325,27 +353,27 @@ export const uploadUI = {
       const what = ctx.seriesMode ? `part ${startPart + (progress.clipIndex || 0)}` : `clip ${idx}`;
       label = total ? `Cutting ${what} of ${ctx.seriesMode ? startPart + total - 1 : total}` : this._STAGES.generating.label;
     } else if (ph === 'done') {
-      this._stageIdx = 4; this._setBar(100, `${progress.clips?.length || 0} clip${progress.clips?.length === 1 ? '' : 's'} ready`); return;
+      run.stageIdx = 4; this._setBar(run, 100, `${progress.clips?.length || 0} clip${progress.clips?.length === 1 ? '' : 's'} ready`); return;
     } else { return; }
 
     const st = this._STAGES[stage];
     const now = Date.now();
-    this._stageClock = this._stageClock || {};
-    const c = this._stageClock[stage] || (this._stageClock[stage] = { t0: now });
+    const c = run.stageClock[stage] || (run.stageClock[stage] = { t0: now });
     const overall = st.from + (st.to - st.from) * Math.max(0, Math.min(1, frac));
-    this._stageIdx = st.step;
+    run.stageIdx = st.step;
 
     // time left in THIS step, from how fast it has gone so far (needs a few seconds and a few percent to mean anything)
     let eta = '';
     const elapsed = (now - c.t0) / 1000;
     if (frac >= 0.04 && frac < 0.995 && elapsed >= 4) eta = this._fmtEta(elapsed * (1 - frac) / frac);
-    const note = this._lengthNote && stage === 'generating' ? ` · ${this._lengthNote}` : '';
-    this._setBar(overall, `${label}${note}${eta ? ' · ' + eta : ''}`);
+    const note = run.lengthNote && stage === 'generating' ? ` · ${run.lengthNote}` : '';
+    this._setBar(run, overall, `${label}${note}${eta ? ' · ' + eta : ''}`);
   },
 
-  _setBar(pct, label) {
-    this._pctMax = Math.max(this._pctMax || 0, pct); // never backwards
-    this.setModalProgress(this._pctMax, label, true);
+  _setBar(run, pct, label) {
+    run.pctMax = Math.max(run.pctMax || 0, pct); // never backwards
+    run.label = label;
+    if (run === this._fg) this.setModalProgress(run.pctMax, label, true); // only the run in front draws on the window
   },
 
   getPhaseLabel(progress) {
@@ -360,25 +388,24 @@ export const uploadUI = {
     return labels[progress.phase] || progress.phase;
   },
 
-  showModal() {
+  showModal(run = this._fg) {
     const modal = document.getElementById('procModal');
     if (modal) modal.classList.add('show');
     window.app?._lockBodyScroll?.();
-    this._pctMax = 0; this._stageIdx = 0; this._stageClock = {}; this._lengthNote = '';
-    this.setModalProgress(0, 'Starting…');
-    this.updateStepsList(this._stepNames(), 0);
+    const live = document.getElementById('procLivePreview'); if (live) { live.style.display = 'none'; live.innerHTML = ''; }
+    this.setModalProgress(run ? run.pctMax : 0, run ? run.label : 'Starting…', true);
   },
 
   // Cloud processing has different stages from the in-browser pipeline, so it gets its own list
   // (it used to show "Load FFmpeg" while the video was still uploading).
-  _stepNames() {
-    return this._cloudSteps
+  _stepNames(run = this._fg) {
+    return run && run.cloudSteps
       ? ['Save to storage', 'Upload to server', 'Analyze video', 'Cut clips', 'Save clips']
       : ['Save to storage', 'Load FFmpeg', 'Analyze audio', 'Detect scenes', 'Score segments', 'Extract clips'];
   },
 
-  _stepIndex(pct) {
-    if (this._cloudSteps) return this._stageIdx != null ? this._stageIdx : 0;
+  _stepIndex(pct, run = this._fg) {
+    if (run && run.cloudSteps) return run.stageIdx != null ? run.stageIdx : 0;
     return pct < 5 ? 0 : pct < 30 ? 1 : pct < 50 ? 2 : pct < 57 ? 3 : pct < 60 ? 4 : 5;
   },
 
@@ -393,17 +420,20 @@ export const uploadUI = {
   },
 
   setModalProgress(pct, label, fromModel = false) {
-    if (!fromModel) { pct = Math.max(pct, this._pctMax || 0); this._pctMax = pct; }
+    const run = this._fg;
+    if (!fromModel && run) { pct = Math.max(pct, run.pctMax || 0); run.pctMax = pct; run.label = label; }
     const bar = document.getElementById('procProgress');
     const pctEl = document.getElementById('procPct');
     const sub = document.getElementById('procSub');
     if (bar) bar.style.width = `${pct}%`;
     if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
     if (sub) sub.textContent = label;
-    this.updateStepsList(this._stepNames(), this._stepIndex(pct));
+    this.updateStepsList(this._stepNames(run), this._stepIndex(pct, run));
   },
 
-  setModalStep(label, pct) {
+  setModalStep(label, pct, run = this._fg) {
+    if (run !== this._fg) return; // a run in the background does not draw on the window
+    if (run) run.label = label;
     const sub = document.getElementById('procSub');
     if (sub) sub.textContent = label;
     const bar = document.getElementById('procProgress');

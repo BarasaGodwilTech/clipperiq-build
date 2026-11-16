@@ -195,3 +195,8 @@ No GitHub account? Skip it. With one: Actions > "Build installer and APK" > Run 
 
 **Android:** the `mobile/` project builds an app that cuts clips on the phone itself (stage 1: Series / spread-out clips,
 crop to 9:16 etc., PART label) and can also connect to a ClipperIQ server. See `mobile/README.md`.
+
+## Squeeze screens, several movies, captions
+- **Squeeze screen** (editor): pick one of nine animated templates for the TV "L-bar" look. Add your logo, product and QR pictures and your offer text.
+- **Several movies at once:** in the progress window press "Run in background", choose the next movie, start it.
+- **Captions** work straight after installing: the installer includes the speech engine (it is downloaded once when the installer is built).

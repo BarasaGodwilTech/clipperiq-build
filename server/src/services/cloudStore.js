@@ -18,6 +18,7 @@ const { pathToFileURL } = require('url');
 const { newId } = require('../db');
 const analyzer = require('../media/analyzer');
 const { createAnalysisTasks } = require('./analysisTasks');
+const { createSlots } = require('./slots');
 const { HttpError } = require('./errors');
 const { explain, detailOf } = require('./explainError');
 
@@ -46,6 +47,9 @@ const receivedBytes = (ranges) => ranges.reduce((n, r) => n + (r[1] - r[0]), 0);
 function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayStore, transcriber = null }) {
   const uploadsCol = db.collection('cloud_uploads');
   const jobsCol = db.collection('cloud_jobs');
+  // A video linked from the person's own disk (desktop app) is theirs: we read it in place and must never delete it.
+  // Only copies the app made itself (uploads, repaired files) are removed.
+  const dropSourceFile = (u) => (u && u.external ? Promise.resolve() : fs.promises.unlink(u.filePath).catch(() => {}));
   fs.mkdirSync(config.dirs.uploads, { recursive: true });
   const jobsOutDir = path.join(config.dirs.data, 'uploads', 'cloud');
   fs.mkdirSync(jobsOutDir, { recursive: true });
@@ -237,7 +241,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
       } catch (e) {
         logger.warn(`cloud upload ${u.id}: not reused (${e.message}); it will be uploaded again`);
         if (!jobsCol.all().some((j) => j.uploadId === u.id && (j.status === 'queued' || j.status === 'running'))) {
-          await fs.promises.unlink(u.filePath).catch(() => {});
+          await dropSourceFile(u);
           uploadsCol.remove(u.id);
         }
         continue;
@@ -248,6 +252,43 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
       return { found: true, uploadId: u.id, name: u.name, duration: fresh.duration || 0 };
     }
     return { found: false };
+  }
+
+  /**
+   * Desktop app: use a video where it already is on the person's disk instead of sending a copy of it through the server.
+   * Registers it exactly like a finished upload (so analysis, rendering, captions all work unchanged) with no copying, no
+   * extra disk use and no waiting. The same file linked again returns the same entry. `fresh` forces a new entry.
+   */
+  async function linkUpload({ path: srcPath, fresh = false } = {}) {
+    const file = String(srcPath || '');
+    if (!file || !path.isAbsolute(file) || file.includes('\0')) throw new HttpError(400, 'A full path to the video file is needed');
+    if (!VIDEO_EXT.has(path.extname(file).toLowerCase())) throw new HttpError(400, 'That does not look like a video file (MP4, MOV, MKV, WebM, ...)');
+    let st;
+    try { st = await fs.promises.stat(file); } catch { throw new HttpError(404, `Cannot find the file: ${file}`); }
+    if (!st.isFile()) throw new HttpError(400, 'That is not a file');
+    if (st.size < 1024) throw new HttpError(422, 'That file is empty or too small to be a video');
+    try { await fs.promises.access(file, fs.constants.R_OK); } catch { throw new HttpError(403, 'The file cannot be read (another program may have it locked, or access is denied)'); }
+
+    if (!fresh) {
+      const same = uploadsCol.all().filter((u) => u.external && u.filePath === file && u.size === st.size && u.mtimeMs === Math.floor(st.mtimeMs))
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+      if (same) {
+        try {
+          await ensureReady(same.id);
+          uploadsCol.update(same.id, { updatedAt: Date.now() });
+          return { uploadId: same.id, reused: true, name: same.name, duration: same.duration || 0 };
+        } catch (e) { logger.warn(`cloud upload ${same.id}: linked file not reused (${e.message})`); }
+      }
+    }
+    const id = newId('u');
+    uploadsCol.insert({
+      id, filePath: file, external: true, mtimeMs: Math.floor(st.mtimeMs),
+      name: path.basename(file).slice(0, 255), size: st.size, type: '',
+      ranges: [[0, st.size]], probed: false, duration: 0, width: 0, height: 0, hasAudio: false,
+      fingerprint: null, createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    logger.info(`cloud upload ${id}: linked in place (${(st.size / 1048576).toFixed(0)} MB, no copy): ${file}`);
+    return { uploadId: id, reused: false, name: path.basename(file), size: st.size };
   }
 
   function getUpload(id) {
@@ -297,6 +338,10 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
   async function ensureReady(id) {
     const u = getUpload(id);
     if (receivedBytes(u.ranges) < u.size) throw new HttpError(409, 'Upload incomplete');
+    if (u.external) {
+      try { if (!(await fs.promises.stat(u.filePath)).isFile()) throw new Error('not a file'); }
+      catch { throw new HttpError(410, `The original video was moved, renamed or deleted: ${u.filePath}. Choose it again.`); }
+    }
     if (!u.probed) {
       let info;
       try { info = await ff.probe(u.filePath, { verify: true }); } catch (e) { throw new HttpError(422, `Could not read this file as a video: ${e.message}`); }
@@ -327,8 +372,9 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
             const fixed = await ff.probe(fixedPath, { verify: true });
             if (healthy(fixed)) {
               logger.info(`cloud upload ${id}: repaired ${info.timelineIssue} timestamps, file ${label} (${info.duration.toFixed(1)}s -> ${fixed.duration.toFixed(1)}s)`);
-              await fs.promises.unlink(u.filePath).catch(() => {});
+              await dropSourceFile(u);   // (a linked original is left alone)
               u.filePath = fixedPath;
+              u.external = false;        // from here on the repaired copy is ours
               info = { ...fixed, headerDuration: info.headerDuration, repaired: label };
               break;
             }
@@ -399,6 +445,9 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
 
   // ── jobs ─────────────────────────────────────────────────────────────────
   const queue = [];
+  // Every clip render in the whole server takes one of these, so several movies at once share the computer's capacity fairly
+  // (instead of each one asking for all of it) and none of them is slowed down by the others fighting over the processor.
+  const renderSlots = createSlots(config.ffmpeg.clipConcurrency);
   let running = 0;
 
   function view(j) {
@@ -408,11 +457,18 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     };
   }
 
-  function createJob({ uploadId, candidates, reEncode, aspectRatio, overlayFormat, seriesStartPart, endsSeries, lastPartNumber, bgm, originalVolume, fit, frame, lowerThird, lowerThirds, adjust, captions, customOverlayId, speedProfile, parentJobId, clipIndex, requestId, origin }, baseUrl) {
+  function createJob({ uploadId, candidates, reEncode, aspectRatio, overlayFormat, seriesStartPart, endsSeries, lastPartNumber, bgm, originalVolume, fit, frame, lowerThird, lowerThirds, squeeze, adjust, captions, customOverlayId, speedProfile, parentJobId, clipIndex, requestId, origin }, baseUrl) {
     const frameSpec = plainObject(frame, 'framing');
     // several lower thirds per clip (a list); `lowerThird` (a single one) is still accepted
     if (lowerThirds != null && !Array.isArray(lowerThirds)) throw new HttpError(400, 'Invalid lower thirds');
     const lowerThirdsSpec = Array.isArray(lowerThirds) && lowerThirds.length ? lowerThirds.slice(0, 6).map((x) => plainObject(x, 'lower third')).filter(Boolean) : null;
+    // A squeeze screen (js/shared/squeeze.js): one object with its text, colours and up to three small pictures (as data urls).
+    if (squeeze != null && (typeof squeeze !== 'object' || Array.isArray(squeeze))) throw new HttpError(400, 'Invalid squeeze screen');
+    let squeezeSpec = null;
+    if (squeeze && squeeze.enabled) { // it may carry up to three small pictures, so it gets more room than the other settings
+      if (JSON.stringify(squeeze).length > 2300000) throw new HttpError(400, 'The squeeze screen is too large (use smaller pictures)');
+      squeezeSpec = JSON.parse(JSON.stringify(squeeze));
+    }
     const adjustSpec = plainObject(adjust, 'clip adjustments');
     const captionsSpec = plainObject(captions, 'captions'); // { enabled, template, style }; the words are kept next to the video (see readCaptions) // cleaned (and held inside the configured limits) by the renderer
     const lowerThirdSpec = plainObject(lowerThird, 'lower third');
@@ -464,7 +520,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     //    moment ago, gives back that job instead of a second one.
     const fingerprint = crypto.createHash('sha1').update(JSON.stringify([
       uploadId, list.map((c) => [Math.round((Number(c.start) || 0) * 100), Math.round((Number(c.duration) || 0) * 100)]), String(aspectRatio || ''), String(overlayFormat || ''),
-      Number(seriesStartPart) || 1, !!reEncode, fit, originalVolume, bgmSpec, customOverlay, frameSpec, lowerThirdSpec, lowerThirdsSpec, adjustSpec, captionsSpec, speedProfile, parent ? [parent.id, ci] : null, endsSeries === false, Number(lastPartNumber) || 0,
+      Number(seriesStartPart) || 1, !!reEncode, fit, originalVolume, bgmSpec, customOverlay, frameSpec, lowerThirdSpec, lowerThirdsSpec, squeezeSpec, adjustSpec, captionsSpec, speedProfile, parent ? [parent.id, ci] : null, endsSeries === false, Number(lastPartNumber) || 0,
     ])).digest('hex');
     const reqKey = requestId ? String(requestId).slice(0, 80) : null;
     // The number of the final part of the series, so a lower third can say something else there ("Follow for Part 7" makes no sense
@@ -488,7 +544,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
       aspectRatio: String(aspectRatio || 'original'), fit: fit === 'blur' ? 'blur' : 'crop',
       overlayFormat: String(overlayFormat || 'none'), seriesStartPart: Number(seriesStartPart) || 1, lastPartNumber: lastPart,
       bgm: bgmSpec, originalVolume: Math.max(0, Math.min(1, Number(originalVolume ?? 1))),
-      customOverlayId: customOverlay, frame: frameSpec, lowerThird: lowerThirdSpec, lowerThirds: lowerThirdsSpec, adjust: adjustSpec, captions: captionsSpec,
+      customOverlayId: customOverlay, frame: frameSpec, lowerThird: lowerThirdSpec, lowerThirds: lowerThirdsSpec, squeeze: squeezeSpec, adjust: adjustSpec, captions: captionsSpec,
       speedProfile: ['balanced', 'fast', 'turbo'].includes(speedProfile) ? speedProfile : 'balanced',
       requestId: reqKey, fingerprint, origin: ['generate', 'retry', 'recreate', 'rerender'].includes(origin) ? origin : (parent ? 'rerender' : 'generate'),
       createdAt: Date.now(), updatedAt: Date.now(),
@@ -689,7 +745,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
           captions: capCues && capCues.length ? { style: capStyle, cues: capLib.cuesInWindow(capCues, start, start + duration) } : null,
           partNumber: (Number(job.seriesStartPart) || 1) + i, // this clip's part number: what {part} / {next} in a lower third mean
           isLastPart: job.lastPartNumber != null && (Number(job.seriesStartPart) || 1) + i === job.lastPartNumber,
-          aspectRatio: job.aspectRatio, fit: job.fit, frame: job.frame || null, lowerThird: job.lowerThird || null, lowerThirds: job.lowerThirds || null, adjust: job.adjust || null, reEncode: job.reEncode,
+          aspectRatio: job.aspectRatio, fit: job.fit, frame: job.frame || null, lowerThird: job.lowerThird || null, lowerThirds: job.lowerThirds || null, squeeze: job.squeeze || null, adjust: job.adjust || null, reEncode: job.reEncode,
           profile: job.speedProfile || 'balanced',
           customOverlay: customOverlayFile ? { file: customOverlayFile } : null,
           overlay: { format: job.overlayFormat, partNumber, startSec: Math.max(0, Math.min(Number(c.overlayStartSec) || 0, Math.max(0, duration - 1))) },
@@ -706,7 +762,9 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
         const MAX_TRIES = 3;
         try {
           for (let attempt = 1; ; attempt++) {
+            let release = null;
             try {
+              release = await renderSlots.acquire(ac.signal); // (waits here while other clips, of this movie or another, are rendering)
               res = await renderer.render(spec, {
                 workDir: config.dirs.tmp, signal: ac.signal,
                 onProgress: (f) => { partial.set(i, f); reportProgress(); },
@@ -716,6 +774,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
               if (attempt > 1) logger.info(`cloud job ${job.id}: clip ${i + 1} was made after repairing the problem (try ${attempt})`);
               break;
             } catch (e) {
+              if (release) { release(); release = null; } // free the slot before any pause for a repair
               await fs.promises.unlink(tmpFile).catch(() => {});
               if (!current() || ac.signal.aborted || /^stopped$/i.test(String(e.message))) throw e;
               // A problem the server can put right (a damaged temporary file, a file another program held for a moment) is repaired and the
@@ -729,7 +788,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
               }
               e.explained = x;
               throw e;
-            }
+            } finally { if (release) { release(); release = null; } }
           }
         } finally { partial.delete(i); }
         finishedAt.set(i, {
@@ -830,8 +889,8 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     for (const u of uploadsCol.all()) {
       const stale = now - u.updatedAt > 24 * 3600 * 1000;
       const finishedElsewhere = receivedBytes(u.ranges) >= u.size && now - u.updatedAt > config.retention.sourceDays * 86400000 && config.retention.sourceDays > 0;
-      if (stale && receivedBytes(u.ranges) < u.size) { await fs.promises.unlink(u.filePath).catch(() => {}); fs.promises.unlink(captionsFileOf(u.id)).catch(() => {}); uploadsCol.remove(u.id); removed++; }
-      else if (finishedElsewhere) { await fs.promises.unlink(u.filePath).catch(() => {}); fs.promises.unlink(captionsFileOf(u.id)).catch(() => {}); uploadsCol.remove(u.id); removed++; }
+      if (stale && receivedBytes(u.ranges) < u.size) { await dropSourceFile(u); fs.promises.unlink(captionsFileOf(u.id)).catch(() => {}); uploadsCol.remove(u.id); removed++; }
+      else if (finishedElsewhere) { await dropSourceFile(u); fs.promises.unlink(captionsFileOf(u.id)).catch(() => {}); uploadsCol.remove(u.id); removed++; }
     }
     const liveBgmIds = new Set(jobsCol.all().filter((j) => j.bgm).map((j) => j.bgm.bgmId));
     const clipMs = (Number(config.retention.clipDays) || 0) * 86400000;
@@ -992,7 +1051,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     const u = uploadsCol.get(String(uploadId));
     if (!u) return { removed: false };
     if (receivedBytes(u.ranges) >= u.size || jobsCol.all().some((j) => j.uploadId === u.id && (j.status === 'queued' || j.status === 'running'))) return { removed: false, kept: true };
-    await fs.promises.unlink(u.filePath).catch(() => {});
+    await dropSourceFile(u);
     uploadsCol.remove(u.id);
     logger.info(`cloud upload ${u.id} discarded (cancelled while sending)`);
     return { removed: true };
@@ -1005,7 +1064,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
       if (j) { try { await removeJobFiles(j); } catch { /* best effort */ } jobsCol.remove(j.id); }
     }
     const u = uploadId ? uploadsCol.get(String(uploadId)) : null;
-    if (u) { await fs.promises.unlink(u.filePath).catch(() => {}); uploadsCol.remove(u.id); }
+    if (u) { await dropSourceFile(u); uploadsCol.remove(u.id); }
     db.markDirty();
   }
 
@@ -1084,7 +1143,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     return jobsCol.all().some((j) => j.status === 'queued' || j.status === 'running');
   }
 
-  return { isBusy, initUpload, writeChunk, ensureReady, analyze, startAnalysis, getAnalysis, cancelAnalysis, frame, createJob, getJob: (id) => view(getJob(id)), retryJob, cancelJob, discardUpload, purge, findUpload, readClipChunk, cleanup, recover, clipsDir, jobsRoot,
+  return { isBusy, initUpload, linkUpload, writeChunk, ensureReady, analyze, startAnalysis, getAnalysis, cancelAnalysis, frame, createJob, getJob: (id) => view(getJob(id)), retryJob, cancelJob, discardUpload, purge, findUpload, readClipChunk, cleanup, recover, clipsDir, jobsRoot,
     captionEngine, readCaptions, saveCaptions, startTranscription, getTranscription, cancelTranscription };
 }
 

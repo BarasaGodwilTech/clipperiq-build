@@ -17,11 +17,11 @@ let timer = null; let last = null;
 function render(v) {
   const out = $('stTestOut'); if (!out) return;
   last = v;
-  const icon = (s) => s === 'ok' ? '<span style="color:var(--success)">&#10003;</span>' : s === 'fail' ? '<span style="color:var(--danger)">&#10007;</span>' : '<span style="color:var(--muted)">&hellip;</span>';
+  const icon = (s) => s === 'ok' ? '<span style="color:var(--success)">&#10003;</span>' : s === 'fail' ? '<span style="color:var(--danger)">&#10007;</span>' : s === 'warn' ? '<span style="color:var(--warn)">!</span>' : '<span style="color:var(--muted)">&hellip;</span>';
   let html = v.steps.map((s) => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
       <div style="width:18px;text-align:center">${icon(s.status)}</div>
       <div style="flex:1;min-width:0"><div style="color:var(--text)">${esc(s.name)}${s.ms ? ` <span style="color:var(--dim)">(${(s.ms / 1000).toFixed(1)}s)</span>` : ''}</div>
-      ${s.detail ? `<div style="color:${s.status === 'fail' ? 'var(--danger)' : 'var(--muted)'};word-break:break-word">${esc(s.detail)}</div>` : ''}
+      ${s.detail ? `<div style="color:${s.status === 'fail' ? 'var(--danger)' : s.status === 'warn' ? 'var(--warn)' : 'var(--muted)'};word-break:break-word">${esc(s.detail)}</div>` : ''}
       ${s.advice ? `<div style="color:var(--warn);margin-top:2px">${esc(s.advice)}</div>` : ''}</div></div>`).join('');
   if (v.status === 'finished') {
     html += v.ok

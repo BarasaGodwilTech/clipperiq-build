@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 const { explain, detailOf } = require('./explainError');
 
-function createSelfTest({ cloud, ff, config, logger }) {
+function createSelfTest({ cloud, ff, config, logger, transcriber = null }) {
   const runs = new Map();
 
   async function waitJob(id, ms, signal) {
@@ -32,7 +32,7 @@ function createSelfTest({ cloud, ff, config, logger }) {
       const s = { name, status: 'running', ms: 0, detail: '' };
       steps.push(s);
       const t0 = Date.now();
-      try { const d = await fn(); s.status = 'ok'; s.detail = d || ''; }
+      try { const d = await fn(); if (d && typeof d === 'object' && d.warn) { s.status = 'warn'; s.detail = d.warn; } else { s.status = 'ok'; s.detail = d || ''; } }
       catch (e) {
         s.status = 'fail';
         const x = explain(e);
@@ -47,6 +47,14 @@ function createSelfTest({ cloud, ff, config, logger }) {
         if (!caps.ok) throw new Error(`FFmpeg is not usable: ${caps.reason || 'not found'}. Run "npm install" in the server folder, or set FFMPEG_PATH.`);
         return `version ${caps.version}`;
       });
+      if (transcriber) {
+        // captions are an extra: if the engine is missing the test still passes, but says so
+        await step('Captions engine (speech to text)', async () => {
+          const st = await transcriber.status();
+          if (st.ready) return `ready: ${st.engine}${st.engine === 'whisper-cpp' && config.captions && config.captions.bundled ? ' (built in)' : ''}`;
+          return { warn: `not set up: ${st.hint || 'no engine found'}` };
+        });
+      }
       await step('Disk space and write access', async () => {
         const probe = path.join(config.dirs.tmp, `.selftest-${process.pid}`);
         fs.mkdirSync(config.dirs.tmp, { recursive: true });

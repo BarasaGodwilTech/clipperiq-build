@@ -215,7 +215,7 @@ export const uploadPage = {
     if (btn) { btn.disabled = !ready; btn.style.opacity = ''; }
     const lbl = $('processBtnLabel'); if (lbl) lbl.textContent = busy ? 'Processing…' : (series ? 'Generate series' : 'Generate clips');
     const why = $('upWhy');
-    if (why) why.textContent = busy ? 'A video is being processed. You can reopen its window from the badge at the bottom right.'
+    if (why) why.textContent = busy ? 'A movie is being processed. Press “Run in background” in its window to start another movie while it works.'
       : !this.file ? 'Choose a video to begin.'
       : prob ? prob
       : this.serverOk === false ? 'Start the ClipperIQ server (start.bat, or open the desktop app), then this button unlocks.'

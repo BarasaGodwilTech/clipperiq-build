@@ -6,6 +6,9 @@ import { FRAME_MODES, FRAME_BGS, FRAME_PRESETS, defaultFrame } from '../shared/f
 import {
   LT_STYLES, LT_IN, LT_OUT, LT_LOOPS, LT_LAST, LT_FONTS, LT_FONT_FILES, LT_PRESETS, defaultLowerThird, normalizeLowerThird,
 } from '../shared/lowerThird.js';
+import {
+  SQ_TEMPLATES, SQ_TRANSITIONS, SQ_LOOPS, SQ_MAX_IMAGE_BYTES, defaultSqueeze, normalizeSqueeze, squeezeTimeline, squeezeWindow, squeezeRect, drawSqueeze,
+} from '../shared/squeeze.js';
 
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const opts = (list, cur) => list.map((o) => `<option value="${esc(o.id)}"${o.id === cur ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
@@ -229,3 +232,147 @@ export function mountLowerThirdPanel(pad, root) {
 }
 
 export { normalizeLowerThird };
+
+
+// ── Squeeze screen ──────────────────────────────────────────────────────────────────────
+/** A picture chosen for a squeeze slot, shrunk and compressed until it is small enough to travel with the design. */
+export function squeezePictureFromFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) { reject(new Error('Choose a picture file (PNG, JPG or WebP).')); return; }
+    const url = URL.createObjectURL(file); const im = new Image();
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      let max = 640;
+      for (let tries = 0; tries < 6; tries++) {
+        const k = Math.min(1, max / Math.max(im.width, im.height)); const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        let out = c.toDataURL('image/png');                                   // PNG keeps a logo's transparent edges
+        if (out.length > SQ_MAX_IMAGE_BYTES * 1.3) out = c.toDataURL('image/webp', 0.82);
+        if (out.length <= SQ_MAX_IMAGE_BYTES * 1.3 && /^data:image\/(png|webp|jpeg)/.test(out)) { resolve(out); return; }
+        max = Math.round(max * 0.75);
+      }
+      reject(new Error('That picture is too detailed to use. Try a smaller one.'));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That picture could not be read.')); };
+    im.src = url;
+  });
+}
+
+export function mountSqueezePanel(pad, root) {
+  const n = pad.ns;
+  root.innerHTML = `
+    <details class="ed-sec" id="${n}SqSec">
+      <summary>Squeeze screen <span class="ed-sec-sub">shrink the video into an animated frame with your offer</span>
+        <label class="ed-check" style="margin-left:auto" onclick="event.stopPropagation()"><input type="checkbox" id="${n}SqOn"> On</label></summary>
+      <div class="ed-sec-body" id="${n}SqBody">
+        <div class="ed-hint" style="margin-top:0">Like a TV ad break: the picture squeezes into a window, your frame slides in around it, and later the picture returns to full screen. Lower thirds, captions and overlays are drawn on top.</div>
+        <div class="sq-gal" id="${n}SqGal" role="radiogroup" aria-label="Squeeze templates"></div>
+        <div class="ed-row ed-row-inline"><label>Brand <input class="form-input" id="${n}SqBrand" maxlength="40"></label><label>Label <input class="form-input" id="${n}SqBadge" maxlength="14" placeholder="LIVE, NEW…" style="width:110px"></label></div>
+        <div class="ed-row ed-row-inline"><label>Big number <input class="form-input" id="${n}SqHead" maxlength="14" style="width:100px" placeholder="36%"></label><label>Small word <input class="form-input" id="${n}SqSub" maxlength="22" style="width:110px" placeholder="OFF"></label></div>
+        <div class="ed-row"><label for="${n}SqTitle">Title</label><input class="form-input" id="${n}SqTitle" maxlength="60"></div>
+        <div class="ed-row"><label for="${n}SqCap">Description</label><input class="form-input" id="${n}SqCap" maxlength="110"></div>
+        <div class="ed-row"><label for="${n}SqCta">Button / call to action</label><input class="form-input" id="${n}SqCta" maxlength="40"></div>
+        <div class="ed-row" id="${n}SqTickRow"><label for="${n}SqTick">Scrolling ticker text</label><input class="form-input" id="${n}SqTick" maxlength="220"></div>
+        <div class="ed-hint">Type {part} for this clip's part number and {next} for the next one.</div>
+
+        <div class="ed-sec-title" style="margin-top:8px">Pictures</div>
+        <div class="sq-pics">
+          ${['logo', 'product', 'qr'].map((k) => `<div class="sq-pic" id="${n}SqPic_${k}"><img id="${n}SqImg_${k}" alt="" style="display:none"><div>${k === 'qr' ? 'QR code' : k === 'logo' ? 'Logo' : 'Product'}</div>
+            <button type="button" class="btn btn-ghost btn-sm" data-pick="${k}">Choose…</button> <button type="button" class="btn btn-ghost btn-sm" data-clear="${k}" style="display:none">Remove</button></div>`).join('')}
+        </div>
+        <input type="file" id="${n}SqFile" accept="image/*" style="display:none">
+        <div class="ed-hint">An empty picture slot shows a sample in this preview only: nothing is drawn there in the finished clip.</div>
+
+        <div class="ed-sec-title" style="margin-top:8px">Look</div>
+        <div class="ed-row ed-row-inline"><label>Main <input type="color" id="${n}SqC1"></label><label>Dark <input type="color" id="${n}SqC2"></label><label>Accent <input type="color" id="${n}SqC3"></label><label>Text <input type="color" id="${n}SqC4"></label></div>
+        <div class="ed-row ed-row-inline"><label>Font <select class="form-input form-select" id="${n}SqFont">${opts(LT_FONTS, 'archivo')}</select></label>
+          <label>Window size <input type="range" id="${n}SqScale" min="80" max="115" value="100" style="width:110px"></label>
+          <label class="ed-check"><input type="checkbox" id="${n}SqMirror"> Flip sides</label></div>
+
+        <div class="ed-sec-title" style="margin-top:8px">Motion</div>
+        <div class="ed-row ed-row-inline"><label>Transition <select class="form-input form-select" id="${n}SqTrans">${opts(SQ_TRANSITIONS, 'ease')}</select></label>
+          <label>While showing <select class="form-input form-select" id="${n}SqLoop"></select></label></div>
+        <div class="ed-row"><label for="${n}SqSpeed">Speed <span id="${n}SqSpeedVal"></span></label><input type="range" id="${n}SqSpeed" min="50" max="200" value="100"></div>
+        <div class="ed-sec-title" style="margin-top:8px">Timing (seconds in each clip)</div>
+        <div class="ed-row ed-row-inline"><label>Appears at <input class="form-input" type="number" id="${n}SqStart" min="0" max="600" step="0.5" style="width:80px"></label>
+          <label>Stays for <input class="form-input" type="number" id="${n}SqHold" min="1.5" max="300" step="0.5" style="width:80px"></label>
+          <label>Repeat every <input class="form-input" type="number" id="${n}SqRepeat" min="0" max="600" step="1" style="width:80px"></label></div>
+        <div class="ed-row ed-row-inline"><label class="ed-check"><input type="checkbox" id="${n}SqAtEnd"> Show near the end of every clip</label></div>
+        <div class="ed-row ed-row-inline"><button class="btn btn-ghost btn-sm" id="${n}SqPlay" type="button">&#9654; Preview animation</button>
+          <button class="btn btn-ghost btn-sm" id="${n}SqReset" type="button">Reset</button></div>
+      </div>
+    </details>`;
+  const $ = (id) => document.getElementById(n + id);
+  const bindText = (id, key) => $(id).addEventListener('input', (e) => pad.setSqueeze({ [key]: e.target.value }));
+  const bindNum = (id, key) => $(id).addEventListener('change', (e) => { const v = Number(e.target.value); if (Number.isFinite(v)) pad.setSqueeze({ [key]: v }); });
+  $('SqOn').addEventListener('change', (e) => pad.setSqueeze({ enabled: e.target.checked }));
+  bindText('SqBrand', 'brand'); bindText('SqBadge', 'badge'); bindText('SqHead', 'headline'); bindText('SqSub', 'sub');
+  bindText('SqTitle', 'title'); bindText('SqCap', 'caption'); bindText('SqCta', 'cta'); bindText('SqTick', 'ticker');
+  [['SqC1', 'primary'], ['SqC2', 'secondary'], ['SqC3', 'accent'], ['SqC4', 'text']].forEach(([id, k]) => $(id).addEventListener('input', (e) => pad.setSqueeze({ [k]: e.target.value })));
+  $('SqFont').addEventListener('change', (e) => pad.setSqueeze({ font: e.target.value }));
+  $('SqTrans').addEventListener('change', (e) => pad.setSqueeze({ transition: e.target.value }));
+  $('SqLoop').addEventListener('change', (e) => pad.setSqueeze({ loop: e.target.value }));
+  $('SqSpeed').addEventListener('input', (e) => pad.setSqueeze({ speed: Number(e.target.value) / 100 }));
+  $('SqScale').addEventListener('input', (e) => pad.setSqueeze({ scale: Number(e.target.value) / 100 }));
+  $('SqMirror').addEventListener('change', (e) => pad.setSqueeze({ mirror: e.target.checked }));
+  bindNum('SqStart', 'start'); bindNum('SqHold', 'hold'); bindNum('SqRepeat', 'repeat');
+  $('SqAtEnd').addEventListener('change', (e) => pad.setSqueeze({ atEnd: e.target.checked }));
+  $('SqPlay').addEventListener('click', () => pad.previewSqueeze());
+  $('SqReset').addEventListener('click', () => pad.setSqueeze({ ...defaultSqueeze(pad.sq.template), enabled: pad.sq.enabled, images: pad.sq.images }));
+
+  // pictures
+  let pickSlot = null;
+  root.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { pickSlot = b.dataset.pick; $('SqFile').value = ''; $('SqFile').click(); }));
+  root.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => pad.setSqueeze({ images: { ...pad.sq.images, [b.dataset.clear]: '' } })));
+  $('SqFile').addEventListener('change', async () => {
+    const f = $('SqFile').files && $('SqFile').files[0]; if (!f || !pickSlot) return;
+    try { pad.setSqueeze({ images: { ...pad.sq.images, [pickSlot]: await squeezePictureFromFile(f) } }); } catch (e) { pad.notify?.('error', e.message); }
+  });
+
+  // template gallery: each card is a small drawing of that template (in the shape of the current output), held
+  const gal = $('SqGal'); let galKey = '';
+  function buildGallery() {
+    const ar = pad.getAspect ? pad.getAspect() : 9 / 16; const key = `${Math.round(ar * 100)}`;
+    if (key === galKey && gal.children.length) return; galKey = key;
+    const tw = 150; const th = Math.round(tw / ar); gal.innerHTML = '';
+    for (const t of SQ_TEMPLATES) {
+      const card = document.createElement('div'); card.className = 'sq-card'; card.setAttribute('role', 'radio'); card.dataset.id = t.id; card.tabIndex = 0; card.title = t.desc;
+      const c = document.createElement('canvas'); c.width = tw; c.height = th; card.appendChild(c); card.appendChild(document.createTextNode(t.label));
+      const draw = () => {
+        const spec = normalizeSqueeze({ enabled: true, template: t.id, loop: 'none', start: 0, hold: 4 }); const tl = squeezeTimeline(spec);
+        const layer = document.createElement('canvas'); layer.width = tw; layer.height = th;
+        const r = drawSqueeze(layer.getContext('2d'), tw, th, spec, tl.inDur + 1, { demo: true });
+        const cx = c.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, tw, th);
+        const g = cx.createLinearGradient(0, 0, tw, th); g.addColorStop(0, '#38bdf8'); g.addColorStop(1, '#f472b6');
+        if (r.rect) { cx.fillStyle = g; cx.fillRect(r.rect.x, r.rect.y, r.rect.w, r.rect.h); } cx.drawImage(layer, 0, 0);
+      };
+      draw(); const pick = () => pad.setSqueeze({ template: t.id, ...t.colors }); // a template brings its own colours; texts and pictures stay
+      card.addEventListener('click', pick); card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+      gal.appendChild(card); card._redraw = draw;
+    }
+  }
+  $('SqSec').addEventListener('toggle', () => { if ($('SqSec').open) buildGallery(); });
+  ensureLowerThirdFonts().then(() => { if ($('SqSec').open) { galKey = ''; buildGallery(); } });
+
+  return {
+    sync() {
+      const q = pad.sq; const typing = (id) => document.activeElement === $(id);
+      $('SqOn').checked = q.enabled; $('SqBody').style.opacity = q.enabled ? '1' : '0.5';
+      if ($('SqSec').open) buildGallery();
+      gal.querySelectorAll('.sq-card').forEach((c) => c.setAttribute('aria-checked', String(c.dataset.id === q.template)));
+      [['SqBrand', 'brand'], ['SqBadge', 'badge'], ['SqHead', 'headline'], ['SqSub', 'sub'], ['SqTitle', 'title'], ['SqCap', 'caption'], ['SqCta', 'cta'], ['SqTick', 'ticker']].forEach(([id, k]) => { if (!typing(id)) $(id).value = q[k]; });
+      $('SqTickRow').style.display = q.template === 'news' ? '' : 'none';
+      [['SqC1', 'primary'], ['SqC2', 'secondary'], ['SqC3', 'accent'], ['SqC4', 'text']].forEach(([id, k]) => { $(id).value = q[k]; });
+      $('SqFont').value = q.font; $('SqTrans').value = q.transition; $('SqMirror').checked = q.mirror; $('SqAtEnd').checked = q.atEnd;
+      const tpl = SQ_TEMPLATES.find((t) => t.id === q.template) || SQ_TEMPLATES[0];
+      $('SqLoop').innerHTML = opts(SQ_LOOPS.filter((l) => tpl.loops.includes(l.id)), q.loop);
+      $('SqSpeed').value = Math.round(q.speed * 100); $('SqSpeedVal').textContent = `${Math.round(q.speed * 100)}%`; $('SqScale').value = Math.round(q.scale * 100);
+      [['SqStart', 'start'], ['SqHold', 'hold'], ['SqRepeat', 'repeat']].forEach(([id, k]) => { if (!typing(id)) $(id).value = q[k]; });
+      for (const k of ['logo', 'product', 'qr']) {
+        const im = $(`SqImg_${k}`); const has = !!q.images[k]; im.style.display = has ? '' : 'none'; if (has) im.src = q.images[k];
+        root.querySelector(`[data-clear="${k}"]`).style.display = has ? '' : 'none';
+      }
+    },
+  };
+}
