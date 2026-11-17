@@ -1106,7 +1106,7 @@ function createCloudStore({ db, config, logger, ff, renderer, bgmStore, overlayS
     setImmediate(pump);
   }
 
-  const MAX_CLIP_CHUNK = 8 * 1024 * 1024;
+  const MAX_CLIP_CHUNK = (config.desktop && config.desktop.enabled ? 64 : 8) * 1024 * 1024; // desktop: loopback only, larger pieces are fine
 
   /**
    * Returns one byte range of a finished clip. The app downloads clips through this (a small POST

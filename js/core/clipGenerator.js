@@ -1084,7 +1084,7 @@ export class ClipGenerator {
    */
   async _downloadClipBlob(src, label) {
     const { base, jobId, index, size, url } = src;
-    const CHUNK = 4 * 1024 * 1024;
+    const CHUNK = (typeof window !== 'undefined' && window.clipperiqDesktop ? 32 : 4) * 1024 * 1024; // the server caps a piece itself
     const STALL_MS = 30000;
     const parts = [];
     let got = 0;

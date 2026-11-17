@@ -62,3 +62,18 @@ printf '{"result":{"language":"pt"},"transcription":[{"offsets":{"from":500,"to"
   assert.deepEqual(r.words.map((w) => w.w), ['Olá', 'mundo']);
   assert.ok(Math.abs(r.words[0].s - 0.5) < 1e-6 && Math.abs(r.words[1].e - 1.5) < 1e-6);
 });
+
+test('the engine is taken from the newest release that has a Windows build, not just the latest one', () => {
+  const { pickRelease } = require('../scripts/fetch-captions');
+  const rel = (tag, names, extra = {}) => ({ tag_name: tag, assets: names.map((name) => ({ name })), ...extra });
+  const list = [
+    rel('v1.9.5', ['whisper.cpp-1.9.5.tar.gz']),                                  // newest: no Windows file
+    rel('v1.9.4', ['whisper-bin-x64.zip', 'whisper-bin-Win32.zip'], { prerelease: true }),
+    rel('v1.9.3', ['whisper-cublas-12.4.0-bin-x64.zip']),                          // only a CUDA build: not usable everywhere
+    rel('v1.8.2', ['whisper-bin-x64.zip', 'whisper-bin-Win32.zip', 'whisper-blas-bin-x64.zip']),
+  ];
+  const got = pickRelease(list);
+  assert.equal(got.release.tag_name, 'v1.8.2'); assert.equal(got.asset.name, 'whisper-bin-x64.zip');
+  assert.equal(pickRelease([rel('v1.9.5', ['x.tar.gz'])]), null);
+  assert.equal(pickRelease(null), null);
+});

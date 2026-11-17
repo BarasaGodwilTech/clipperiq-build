@@ -272,7 +272,12 @@ class ClipperIQApp {
 
     // Sync global settings (including backend_base_url) from Firestore first
     // (each is given a few seconds: on a poor network they must not hold the whole app on "Loading...")
-    await this._stage('settings from Firebase', async () => { const m = await import('./firebase.js'); return m.syncApiKeysFromFirebase(); }, { ms: 6000 });
+    const fromFirebase = () => this._stage('settings from Firebase', async () => { const m = await import('./firebase.js'); return m.syncApiKeysFromFirebase(); }, { ms: 6000 });
+    // Desktop app: the window must not wait for the internet. Everything that is stored on this computer (and so works offline) is
+    // loaded first; the online sync runs in the background and the server's own settings are applied again after it, so they still win.
+    const desktopApp = !!window.clipperiqDesktop;
+    if (desktopApp) fromFirebase().then(() => syncApiKeysFromBackend()).catch(() => {});
+    else await fromFirebase();
     // The server's .env is the canonical config source, so let it override any Firestore-synced key
     await this._stage('settings from the server', () => syncApiKeysFromBackend(), { ms: 6000 });
 
@@ -290,8 +295,12 @@ class ClipperIQApp {
     this._resumeInterruptedUploads();
 
     await this._stage('dashboard', () => dashboard.refresh());
-    await this._stage('account status', () => this.refreshAccountStatuses(), { ms: 8000 });
-    await this._stage('platform status', () => this._updateDashPlatformStatus(), { ms: 8000 });
+    const onlineStatus = async () => {
+      await this._stage('account status', () => this.refreshAccountStatuses(), { ms: 8000 });
+      await this._stage('platform status', () => this._updateDashPlatformStatus(), { ms: 8000 });
+    };
+    if (desktopApp) onlineStatus().catch(() => {}); // asks TikTok / YouTube / Instagram: needs the internet, so never held the screen
+    else await onlineStatus();
     await this._stage('queue badge', () => this._startQueueBadgeUpdater());
     if (this._startupIssues && this._startupIssues.length) {
       notify.warn(`Some parts did not load (${[...new Set(this._startupIssues)].slice(0, 3).join(', ')}). The rest works. Settings, Diagnostics has the details.`);

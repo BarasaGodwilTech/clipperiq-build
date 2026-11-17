@@ -16,6 +16,8 @@ jobs:
         working-directory: desktop
       - run: npm run dist
         working-directory: desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with: { name: ClipperIQ-Windows, path: "desktop/dist/*.exe" }
   android:

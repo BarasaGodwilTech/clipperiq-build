@@ -22,7 +22,7 @@ const OUT_DIR = path.resolve(__dirname, '..', 'vendor', 'whisper');
 const MODELS = { // quantised models: about a third of the size of the originals, nearly the same accuracy
   tiny: 'ggml-tiny-q5_1.bin', base: 'ggml-base-q5_1.bin', small: 'ggml-small-q5_1.bin', medium: 'ggml-medium-q5_0.bin',
 };
-const RELEASES_API = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest';
+const RELEASES_API = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=40';
 const MODEL_URL = (file) => `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${file}`;
 const MIN_MODEL_BYTES = 20 * 1024 * 1024;
 
@@ -31,6 +31,19 @@ function pickAsset(release) {
   const assets = (release && release.assets) || [];
   const ok = (a) => /\.zip$/i.test(a.name) && /x64/i.test(a.name) && !/cublas|blas|cuda|vulkan|openvino|arm/i.test(a.name);
   return assets.find((a) => /^whisper-bin-x64\.zip$/i.test(a.name)) || assets.find((a) => ok(a) && /bin/i.test(a.name)) || assets.find(ok) || null;
+}
+
+/**
+ * The newest release that actually carries a Windows x64 build. The very latest release does not always have one (some releases
+ * are published without Windows files), so looking only at "latest" made the installer build fail.
+ */
+function pickRelease(releases) {
+  for (const r of (Array.isArray(releases) ? releases : [])) {
+    if (!r || r.draft || r.prerelease) continue;
+    const asset = pickAsset(r);
+    if (asset) return { release: r, asset };
+  }
+  return null;
 }
 
 function findExe(dir) {
@@ -68,7 +81,8 @@ function get(url, { json = false, headers = {} } = {}) {
   });
 }
 async function getJson(url) {
-  const res = await get(url, { json: true }); const chunks = [];
+  // GitHub limits anonymous requests; the build machine on GitHub Actions has a token for this (GITHUB_TOKEN)
+  const res = await get(url, { json: true, headers: process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {} }); const chunks = [];
   for await (const c of res) chunks.push(c);
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
@@ -113,8 +127,17 @@ async function main() {
 
   console.log('captions: getting the speech-to-text engine for the installer (one time)…');
   if (force || !exeThere) {
-    const release = await getJson(RELEASES_API); const asset = pickAsset(release);
-    if (!asset) throw new Error(`no Windows build found in whisper.cpp release ${release.tag_name}. Download it yourself from https://github.com/ggml-org/whisper.cpp/releases and put whisper-cli.exe and its .dll files in ${OUT_DIR}`);
+    // CAPTIONS_WHISPER_URL=<direct link to a whisper.cpp Windows x64 .zip> skips the search (for a build machine that can't reach the API)
+    let release; let asset;
+    if (process.env.CAPTIONS_WHISPER_URL) {
+      const u = process.env.CAPTIONS_WHISPER_URL;
+      release = { tag_name: 'custom' }; asset = { name: path.basename(new URL(u).pathname) || 'whisper.zip', browser_download_url: u };
+    } else {
+      const found = pickRelease(await getJson(RELEASES_API));
+      if (!found) throw new Error(`no whisper.cpp release with a Windows build was found. Download whisper-bin-x64.zip yourself from https://github.com/ggml-org/whisper.cpp/releases (or any build of it), then either set CAPTIONS_WHISPER_URL to its direct link, or put whisper-cli.exe and its .dll files in ${OUT_DIR}`);
+      ({ release, asset } = found);
+      console.log(`captions: using whisper.cpp ${release.tag_name} (${asset.name})`);
+    }
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cliq-whisper-'));
     try {
       const zip = path.join(tmp, asset.name);
@@ -122,7 +145,14 @@ async function main() {
       extractZip(zip, path.join(tmp, 'x'));
       const exe = findExe(path.join(tmp, 'x'));
       if (!exe) throw new Error(`whisper-cli.exe was not found inside ${asset.name}`);
-      for (const f of fs.readdirSync(path.dirname(exe))) { const src = path.join(path.dirname(exe), f); if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(OUT_DIR, f)); }
+      // keep the speech program and its libraries only: the release also carries ~20 test and demo programs the app never uses
+      const KEEP_EXE = new Set(['whisper-cli.exe', 'main.exe']);
+      for (const f of fs.readdirSync(path.dirname(exe))) {
+        const src = path.join(path.dirname(exe), f);
+        if (!fs.statSync(src).isFile()) continue;
+        if (/\.exe$/i.test(f) && !KEEP_EXE.has(f.toLowerCase())) continue;
+        fs.copyFileSync(src, path.join(OUT_DIR, f));
+      }
       fs.writeFileSync(path.join(OUT_DIR, 'VERSION.json'), JSON.stringify({ whisperCpp: release.tag_name, asset: asset.name, model: MODELS[choice], fetchedAt: new Date().toISOString() }, null, 2));
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
@@ -135,4 +165,4 @@ async function main() {
 
 if (require.main === module) main().then((c) => process.exit(c)).catch((e) => { console.error(`\ncaptions: ${e.message}\n(Build without captions by setting SKIP_CAPTIONS_FETCH=1.)`); process.exit(1); });
 
-module.exports = { pickAsset, findExe, extractZip, MODELS, MODEL_URL };
+module.exports = { pickAsset, pickRelease, findExe, extractZip, MODELS, MODEL_URL };

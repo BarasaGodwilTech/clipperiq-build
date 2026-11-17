@@ -99,14 +99,32 @@ async function waitForServer(maxMs = 60000) {
   return false;
 }
 
+// Remember the window's size, position and maximised state between starts, like a normal program
+const STATE_FILE = () => path.join(userDir(), 'window-state.json');
+function loadWindowState() {
+  try {
+    const st = JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8'));
+    const { screen } = require('electron');
+    const onScreen = screen.getAllDisplays().some((d) => st.x >= d.bounds.x - 50 && st.y >= d.bounds.y - 50 && st.x < d.bounds.x + d.bounds.width - 100 && st.y < d.bounds.y + d.bounds.height - 100);
+    return { width: Math.max(900, st.width | 0) || 1360, height: Math.max(640, st.height | 0) || 900, ...(onScreen ? { x: st.x, y: st.y } : {}), maximized: !!st.maximized };
+  } catch { return { width: 1360, height: 900, maximized: false }; }
+}
+function saveWindowState() {
+  if (!win || win.isDestroyed()) return;
+  try { const b = win.isMaximized() ? (win.__normalBounds || win.getNormalBounds()) : win.getBounds(); fs.writeFileSync(STATE_FILE(), JSON.stringify({ ...b, maximized: win.isMaximized() })); } catch { /* not important */ }
+}
+
 function createWindow() {
+  const ws = loadWindowState();
   win = new BrowserWindow({
-    width: 1360, height: 900, minWidth: 900, minHeight: 640,
+    width: ws.width, height: ws.height, x: ws.x, y: ws.y, minWidth: 900, minHeight: 640,
     backgroundColor: '#0a0a0f', title: 'ClipperIQ Studio', show: false,
     icon: path.join(__dirname, 'build', 'icon.png'),
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, preload: path.join(__dirname, 'preload.js') },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') },
   });
+  if (ws.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
+  win.on('close', saveWindowState);
   win.loadURL(URL_BASE + '/');
 
   // sign-in / publish popups stay inside the app; every other link opens in the normal browser
@@ -167,7 +185,7 @@ if (!app.requestSingleInstanceLock()) { app.quit(); } else {
     }
     // Start from a fresh HTTP cache so an updated install never shows old files (the app's saved library is not touched)
     try { await session.defaultSession.clearCache(); } catch { /* ignore */ }
-    try { await session.defaultSession.cookies.set({ url: URL_BASE, name: 'ciq_token', value: TOKEN, httpOnly: true, sameSite: 'strict' }); } catch (e) { console.error('could not set the app secret', e); }
+    try { await session.defaultSession.cookies.set({ url: URL_BASE, name: 'ciq_token', value: TOKEN, httpOnly: true, sameSite: 'lax' }); } catch (e) { console.error('could not set the app secret', e); }
     createWindow();
   });
 

@@ -469,3 +469,20 @@ The message hid the reason (it only went to the console) and sat in a corner of 
 Files: desktop/main.js, desktop/preload.js, desktop/package.json, build-desktop.bat, js/core/clipGenerator.js, js/app.js,
 server/index.js, server/src/config.js, server/src/routes/cloud.js, server/src/services/cloudStore.js,
 server/src/middleware/desktopGuard.js (new), server/test/link-upload.test.js (new).
+- **Installer build fix (captions engine):** the build no longer fails when the newest whisper.cpp release has no Windows file. It
+  now takes the newest release that does (server/scripts/fetch-captions.js). `CAPTIONS_WHISPER_URL` can point to a zip directly,
+  and GitHub Actions passes its token so the lookup is not rate limited.
+- **Installer build fix (publish step):** electron-builder crashed after building the installers ("Cannot read properties of null
+  (reading 'provider')"). desktop/package.json now names a repository and a (never used) publish target. The captions bundle keeps only
+  whisper-cli/main and the libraries instead of ~20 test programs, so the installer is smaller.
+
+## Update 25: desktop app behaves like a program, not a website (2.3.0)
+- **Sign-in fix (important):** the app-only secret cookie from update 24 was "strict", which would have blocked TikTok / YouTube /
+  Instagram sign-in popups from returning to the app. It is now "lax": still unusable by other websites, but sign-in works.
+- **Starts without waiting for the internet:** Firebase settings sync and the account/platform status checks now run in the background
+  in the desktop app (they could hold the first screen for up to ~28 s on a slow or offline connection). The server's own settings are
+  applied again after the online sync, so they still win. Google Fonts no longer blocks the first paint.
+- **Keeps working at full speed when minimised:** background throttling is off, so job progress and clip downloads are not slowed
+  down (a hidden window used to be limited to ~1 check per second, later per minute).
+- **Faster clip hand-over:** clips move from the server to the library in 32 MB pieces (was 4 MB) in the desktop app.
+- **Remembers window size, position and maximised state.**

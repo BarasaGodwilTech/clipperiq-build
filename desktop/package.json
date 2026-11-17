@@ -1,7 +1,7 @@
 {
   "name": "clipperiq-studio-desktop",
   "productName": "ClipperIQ Studio",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "ClipperIQ Studio desktop app: the video server and the app in one installable program",
   "author": "ClipperIQ",
   "private": true,
@@ -88,6 +88,16 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "ClipperIQ Studio"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.invalid/clipperiq"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BarasaGodwilTech/clipperiq-build.git"
   }
 }
